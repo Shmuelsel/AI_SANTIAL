@@ -18,7 +18,7 @@ function App() {
       {/* אזור התצוגה הראשי */}
       <main className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
         {/* חלון המצלמה - תופס 3 עמודות מתוך 4 */}
-        <div className="md:col-span-3 space-y-4">
+        <div className="md:col-span-3 space-y-4">k
           <h2 className="text-xl font-semibold flex items-center gap-2 bg-bla">
             <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
             Main Camera Feed
