@@ -3,198 +3,171 @@ import { io } from 'socket.io-client';
 import { AlertTriangle, CheckCircle, Ban, Activity } from 'lucide-react';
 
 const LiveRoom = () => {
-    const [alerts, setAlerts] = useState([]);
-    const [activeDetection, setActiveDetection] = useState(null);
+  const [alerts, setAlerts] = useState([]);
+  // שינוי: עכשיו זה מערך של זיהויים פעילים, לא אחד בודד
+  const [activeDetections, setActiveDetections] = useState([]); 
+  
+  const socketRef = useRef(null);
+  const imgRef = useRef(null);
+  const canvasRef = useRef(null);
 
-    const socketRef = useRef(null);
-    const imgRef = useRef(null); // שינינו את השם מ-videoRef ל-imgRef לבהירות
-    const canvasRef = useRef(null);
+  useEffect(() => {
+    socketRef.current = io('http://localhost:5000', {
+      transports: ['websocket'],
+      reconnectionAttempts: 5,
+    });
+    
+    // האזנה לאירוע החדש: alert_batch
+    socketRef.current.on('alert_batch', (detections) => {
+      console.log(`📦 Received batch of ${detections.length} objects`);
+      
+      // עדכון הציור בזמן אמת
+      setActiveDetections(detections);
 
-    // 1. חיבור לסוקט
-    useEffect(() => {
-        console.log("🔌 Attempting to connect to React...");
-        socketRef.current = io('http://localhost:5000', {
-            transports: ['websocket'], // כופה שימוש ב-WebSocket בלבד
-            reconnectionAttempts: 5,   // מנסה להתחבר מחדש 5 פעמים
-        });
+      // עדכון הלוג בצד (לוקחים רק את הראשון מהנגלה כדי לא להספים את הלוג)
+      if (detections.length > 0) {
+        setAlerts((prev) => [detections[0], ...prev].slice(0, 10));
+      }
+    });
 
-        socketRef.current.on('alert', (data) => {
-            console.log("📦 Alert received from Python:", data.label); // נראה את זה ב-F12
-            setAlerts((prev) => [data, ...prev].slice(0, 10));
-            setActiveDetection(data);
-        });
+    return () => socketRef.current.disconnect();
+  }, []);
 
-        socketRef.current.on('disconnect', () => {
-            console.log("❌ WebSocket Disconnected");
-        });
+  // לוגיקת הציור - תומכת בריבוי אובייקטים
+  useEffect(() => {
+    // מנקים את הקנבס תמיד, גם אם אין זיהויים (כדי למחוק ריבועים ישנים)
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
 
-        return () => socketRef.current.disconnect();
-    }, []);
+    const ctx = canvas.getContext('2d');
+    
+    // סנכרון גודל
+    if (canvas.width !== img.clientWidth || canvas.height !== img.clientHeight) {
+        canvas.width = img.clientWidth;
+        canvas.height = img.clientHeight;
+    }
 
-    // 2. לוגיקה לציור הריבוע
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        const img = imgRef.current;
+    // 1. נקה את המסך
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // אם אין תמונה, אין קנבס או אין זיהוי - בורחים
-        if (!canvas || !img || !activeDetection) return;
+    // 2. צייר את כל הריבועים בלולאה
+    activeDetections.forEach(detection => {
+        drawSingleBox(ctx, detection, canvas.width, canvas.height);
+    });
 
-        const ctx = canvas.getContext('2d');
+    // טיימר לניקוי אם אין תנועה יותר משנייה
+    const timer = setTimeout(() => {
+        // אופציונלי: אפשר לאפס את המערך אם רוצים שהריבועים יעלמו מהר כשיש שקט
+        // setActiveDetections([]); 
+    }, 1000);
 
-        // מוודאים שגודל הקנבס תואם לגודל התמונה המוצגת
-        // זה החלק הקריטי שהיה חסר!
-        if (canvas.width !== img.clientWidth || canvas.height !== img.clientHeight) {
-            canvas.width = img.clientWidth;
-            canvas.height = img.clientHeight;
-        }
+    return () => clearTimeout(timer);
 
-        // הדפסת נתוני ציור לקונסול כדי לוודא חישובים
-        // console.log("🎨 Drawing on canvas size:", canvas.width, "x", canvas.height);
+  }, [activeDetections]); 
 
-        drawDetection(ctx, canvas.width, canvas.height);
+  const drawSingleBox = (ctx, detection, width, height) => {
+      const { x, y, w, h } = detection.bbox;
+      const rectX = x * width;
+      const rectY = y * height;
+      const rectW = w * width;
+      const rectH = h * height;
 
-    }, [activeDetection]); // רץ כל פעם שיש זיהוי חדש
+      ctx.beginPath();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#00ff00'; 
+      ctx.rect(rectX, rectY, rectW, rectH);
+      ctx.stroke();
 
-    const drawDetection = (ctx, width, height) => {
-        // ניקוי הקנבס לפני ציור חדש
-        ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#00ff00';
+      ctx.fillRect(rectX, rectY - 25, 120, 25);
 
-        const { x, y, w, h } = activeDetection.bbox;
+      ctx.fillStyle = 'black';
+      ctx.font = 'bold 14px Arial';
+      ctx.fillText(`${detection.label} ${(detection.confidence * 100).toFixed(0)}%`, rectX + 5, rectY - 7);
+  };
 
-        // המרה מאחוזים (0.5) לפיקסלים (400px)
-        const rectX = x * width;
-        const rectY = y * height;
-        const rectW = w * width;
-        const rectH = h * height;
+  const handleDecision = (status) => {
+     // כרגע מטפל רק בהתראה הראשונה ברשימה לדוגמה
+     if (activeDetections.length === 0) return;
+     const target = activeDetections[0];
+     socketRef.current.emit('feedback', { eventId: target.id, status });
+     setActiveDetections([]); // מנקה את המסך
+  };
 
-        // ציור הריבוע
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(rectX, rectY, rectW, rectH);
-
-        // רקע לטקסט
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(rectX, rectY - 30, 140, 30);
-
-        // טקסט
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 14px sans-serif';
-        ctx.fillText(
-            `${activeDetection.label} ${(activeDetection.confidence * 100).toFixed(0)}%`,
-            rectX + 10,
-            rectY - 10
-        );
-
-        // טיימר לניקוי הריבוע אם אין זיהוי חדש תוך שנייה
-        setTimeout(() => {
-            if (canvasRef.current) {
-                const currentCtx = canvasRef.current.getContext('2d');
-                // מנקים רק אם אין זיהוי חדש שקרה בינתיים (בדיקה פשטנית)
-                // בפועל זה יגרום להבהוב קל אבל זה טוב לדיבאג
-                // currentCtx.clearRect(0, 0, width, height); 
-            }
-        }, 1000);
-    };
-
-    const handleDecision = (status) => {
-        if (!activeDetection || !socketRef.current) return;
-        socketRef.current.emit('feedback', { eventId: activeDetection.id, status });
-        setActiveDetection(null);
-        if (canvasRef.current) {
-            const ctx = canvasRef.current.getContext('2d');
-            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        }
-    };
-
-    return (
-        <div className="grid grid-cols-12 gap-6 h-[calc(100vh-8rem)]">
-
-            <div className="col-span-9 flex flex-col gap-4">
-                {/* קונטיינר הוידאו - חייב להיות relative כדי שהקנבס ישב עליו */}
-                <div className="relative bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 aspect-video group">
-
-                    <img
-                        ref={imgRef}
-                        className="w-full h-full object-contain" // object-contain שומר על פרופורציות
-                        src="http://localhost:5000/video_feed"
-                        alt="Live Feed"
-                        // ברגע שהתמונה נטענת, נעדכן את גודל הקנבס
-                        onLoad={() => {
-                            if (canvasRef.current && imgRef.current) {
-                                canvasRef.current.width = imgRef.current.clientWidth;
-                                canvasRef.current.height = imgRef.current.clientHeight;
-                            }
-                        }}
-                    />
-
-                    <canvas
-                        ref={canvasRef}
-                        className="absolute top-0 left-0 w-full h-full pointer-events-none"
-                    />
-
-                    <div className="absolute top-4 left-4 bg-red-600/90 text-white px-3 py-1 rounded text-xs font-bold tracking-widest flex items-center animate-pulse">
-                        <span className="w-2 h-2 bg-white rounded-full mr-2"></span>
-                        LIVE FEED
-                    </div>
-                </div>
-
-                {/* כפתורים */}
-                <div className="grid grid-cols-2 gap-4 h-24">
-                    <button
-                        onClick={() => handleDecision('confirmed')}
-                        disabled={!activeDetection}
-                        className={`rounded-xl flex items-center justify-center gap-3 text-xl font-semibold transition-all shadow-lg 
-              ${activeDetection
-                                ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20 active:scale-95'
-                                : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                    >
-                        <AlertTriangle size={28} />
-                        Confirm Alarm
-                    </button>
-
-                    <button
-                        onClick={() => handleDecision('false_alarm')}
-                        disabled={!activeDetection}
-                        className={`rounded-xl flex items-center justify-center gap-3 text-xl font-semibold transition-all shadow-lg 
-              ${activeDetection
-                                ? 'bg-slate-700 hover:bg-emerald-600 text-white active:scale-95'
-                                : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                    >
-                        {activeDetection ? <CheckCircle size={28} /> : <Ban size={28} />}
-                        {activeDetection ? "Mark as False Alarm" : "No Active Threats"}
-                    </button>
-                </div>
-            </div>
-
-            {/* סרגל צד */}
-            <div className="col-span-3 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden">
-                <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-                    <h3 className="font-semibold text-slate-100 flex items-center gap-2">
-                        <Activity size={18} className="text-indigo-400" />
-                        Recent Alerts
-                    </h3>
-                    <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-full">Real-time</span>
-                </div>
-
-                <div className="flex-1 overflow-auto p-2 space-y-2 custom-scrollbar">
-                    {alerts.map((alert, idx) => (
-                        <div key={idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 hover:bg-slate-800 transition-colors animate-in slide-in-from-right-4">
-                            <div className="flex justify-between items-start mb-1">
-                                <span className="text-red-400 font-bold text-sm">{alert.label}</span>
-                                <span className="text-xs text-slate-500">
-                                    {alert.timestamp ? alert.timestamp.split('T')[1] : 'Just now'}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-xs text-slate-400">Cam: {alert.camera_id}</span>
-                                <span className="text-xs text-slate-500">{(alert.confidence * 100).toFixed(0)}%</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
+  return (
+    <div className="grid grid-cols-12 gap-6 h-[calc(100vh-8rem)]">
+      <div className="col-span-9 flex flex-col gap-4">
+        
+        <div className="relative bg-black rounded-2xl overflow-hidden aspect-video border-2 border-slate-700">
+          <img 
+            ref={imgRef}
+            src="http://localhost:5000/video_feed"
+            className="w-full h-full object-contain"
+            alt="stream"
+          />
+          <canvas 
+            ref={canvasRef}
+            className="absolute top-0 left-0 w-full h-full pointer-events-none z-10"
+          />
         </div>
-    );
+
+        <div className="bg-slate-800 p-4 rounded text-white flex justify-between items-center">
+            <span>
+                {activeDetections.length > 0 
+                ? `⚠️ DETECTED: ${activeDetections.length} Objects Moving` 
+                : "Scanning Area (Motion Detection Active)..."}
+            </span>
+            {activeDetections.length > 0 && (
+                <span className="text-xs bg-red-500 px-2 py-1 rounded animate-pulse">MOTION</span>
+            )}
+        </div>
+        
+        {/* כפתורים */}
+        <div className="grid grid-cols-2 gap-4 h-24">
+          <button 
+            onClick={() => handleDecision('confirmed')}
+            disabled={activeDetections.length === 0}
+            className={`rounded-xl flex items-center justify-center gap-3 text-xl font-semibold transition-all shadow-lg 
+              ${activeDetections.length > 0
+                ? 'bg-red-500 hover:bg-red-600 text-white cursor-pointer' 
+                : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+          >
+            <AlertTriangle size={28} /> Confirm Alarm
+          </button>
+          
+          <button 
+             onClick={() => handleDecision('false_alarm')}
+             disabled={activeDetections.length === 0}
+             className={`rounded-xl flex items-center justify-center gap-3 text-xl font-semibold transition-all shadow-lg 
+              ${activeDetections.length > 0
+                ? 'bg-slate-700 hover:bg-emerald-600 text-white cursor-pointer' 
+                : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+          >
+            <CheckCircle size={28} /> Mark as False
+          </button>
+        </div>
+      </div>
+
+      <div className="col-span-3 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden">
+        <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+          <h3 className="font-semibold text-slate-100 flex items-center gap-2">
+            <Activity size={18} className="text-indigo-400"/> Recent Alerts
+          </h3>
+        </div>
+        <div className="flex-1 overflow-auto p-2 space-y-2 custom-scrollbar">
+          {alerts.map((alert, idx) => (
+            <div key={idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-red-400 font-bold text-sm">{alert.label}</span>
+                <span className="text-xs text-slate-500">{alert.timestamp ? alert.timestamp.split('T')[1] : ''}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default LiveRoom;
