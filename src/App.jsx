@@ -4,13 +4,15 @@ import MainLayout from './layouts/MainLayout';
 import LiveRoom from './pages/LiveRoom';
 import Dashboard from './pages/Dashboard';
 import Logs from './pages/Logs';
+import Settings from './pages/Settings';
+// import Users from './pages/Users';
 
 // Placeholder Components (נחליף אותם בהמשך)
 //const Dashboard = () => <div className="text-2xl">Dashboard Content</div>;
 //const LiveRoom = () => <div className="text-2xl">Live Incident Room (Video Here)</div>;
 //const Logs = () => <div className="text-2xl">Events History Log</div>;
 const Users = () => <div className="text-2xl">User Management</div>;
-const Settings = () => <div className="text-2xl">System Configuration</div>;
+//const Settings = () => <div className="text-2xl">System Configuration</div>;
 
 function App() {
   return (
