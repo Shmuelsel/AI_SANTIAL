@@ -1,24 +1,39 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { useState } from 'react'; // <--- הוספנו את useState
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'; // <--- הוספנו את Navigate
 import MainLayout from './layouts/MainLayout';
 import LiveRoom from './pages/LiveRoom';
 import Dashboard from './pages/Dashboard';
 import Logs from './pages/Logs';
 import Settings from './pages/Settings';
-// import Users from './pages/Users';
+import Login from './pages/Login';
 
-// Placeholder Components (נחליף אותם בהמשך)
-//const Dashboard = () => <div className="text-2xl">Dashboard Content</div>;
-//const LiveRoom = () => <div className="text-2xl">Live Incident Room (Video Here)</div>;
-//const Logs = () => <div className="text-2xl">Events History Log</div>;
-const Users = () => <div className="text-2xl">User Management</div>;
-//const Settings = () => <div className="text-2xl">System Configuration</div>;
+// קומפוננטה זמנית למשתמשים (זה בסדר גמור כרגע)
+const Users = () => <div className="text-2xl p-4 text-white">User Management Module</div>;
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+  };
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<MainLayout />}>
+        {/* נתיב הכניסה */}
+        <Route 
+          path="/login" 
+          element={
+            isAuthenticated ? <Navigate to="/" /> : <Login onLogin={handleLogin} />
+          } 
+        />
+        
+        {/* נתיבים מוגנים - עטופים ב-Layout */}
+        <Route path="/" element={isAuthenticated ? <MainLayout onLogout={handleLogout} /> : <Navigate to="/login" />}>
           <Route index element={<Dashboard />} />
           <Route path="live" element={<LiveRoom />} />
           <Route path="logs" element={<Logs />} />

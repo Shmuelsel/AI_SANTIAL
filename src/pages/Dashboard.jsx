@@ -1,10 +1,19 @@
-import React from 'react';
+import {React, useState, useEffect} from 'react';
 import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
-} from 'recharts';
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { ShieldCheck, AlertTriangle, Activity, Eye } from 'lucide-react';
-
 const Dashboard = () => {
+
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date()); // עדכון ה-State גורם לרינדור מחדש
+    }, 1000);
+
+    // ניקוי הטיימר כשהקומפוננטה יורדת מהמסך (מונע זליגת זיכרון)
+    return () => clearInterval(timer);
+  }, []);
   // נתוני דמה לגרף (בהמשך נביא אותם מהשרת)
   const data = [
     { name: '08:00', total: 12, falseAlarm: 2 },
@@ -12,7 +21,7 @@ const Dashboard = () => {
     { name: '12:00', total: 35, falseAlarm: 12 },
     { name: '14:00', total: 28, falseAlarm: 4 },
     { name: '16:00', total: 42, falseAlarm: 8 },
-    { name: '18:00', total: 55, falseAlarm: 15 },
+    { name: '18:00', total: 95, falseAlarm: 15 },
     { name: '20:00', total: 30, falseAlarm: 3 },
   ];
 
@@ -110,7 +119,7 @@ const Dashboard = () => {
           
           <div className="mt-8 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
             <p className="text-sm text-slate-400">Last system check:</p>
-            <p className="text-white font-mono">Today, 09:41 AM</p>
+            <p className="text-white font-mono">{new Date().toLocaleString()}</p>
           </div>
         </div>
       </div>
