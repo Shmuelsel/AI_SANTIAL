@@ -11,7 +11,7 @@ import Login from './pages/Login';
 const Users = () => <div className="text-2xl p-4 text-white">User Management Module</div>;
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const handleLogin = () => {
     setIsAuthenticated(true);
