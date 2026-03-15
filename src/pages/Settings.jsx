@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Save, Bell, Shield, Server, Camera, RefreshCw, Volume2, Mail, Cpu } from 'lucide-react';
+import { Save, Bell, Shield, Server, Camera, RefreshCw, Volume2, Mail, Cpu, CheckCircle, XCircle } from 'lucide-react';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const Settings = () => {
   // State לניהול ההגדרות
@@ -21,15 +23,27 @@ const Settings = () => {
     { id: 3, name: 'Garage Interior', ip: '192.168.1.103', status: 'Offline' },
   ]);
 
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving]   = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // 'success' | 'error' | null
 
-  // סימולציה של שמירה לשרת
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    setTimeout(() => {
+    setSaveStatus(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thresholds, notifications }),
+      });
+      if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+      setSaveStatus('success');
+    } catch (err) {
+      console.error('[Settings] Save failed:', err);
+      setSaveStatus('error');
+    } finally {
       setIsSaving(false);
-      alert('Settings saved successfully!'); // בפרודקשן נחליף את זה ב-Toast יפה
-    }, 1500);
+      setTimeout(() => setSaveStatus(null), 4000);
+    }
   };
 
   return (
@@ -41,14 +55,26 @@ const Settings = () => {
           <h2 className="text-3xl font-bold text-white">System Configuration</h2>
           <p className="text-slate-400 mt-1">Manage AI sensitivity, notifications, and device status.</p>
         </div>
-        <button 
-          onClick={handleSave}
-          disabled={isSaving}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 font-medium transition-all shadow-lg shadow-indigo-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isSaving ? <RefreshCw className="animate-spin" size={20}/> : <Save size={20} />}
-          {isSaving ? 'Saving...' : 'Save Changes'}
-        </button>
+        <div className="flex items-center gap-3">
+          {saveStatus === 'success' && (
+            <span className="flex items-center gap-1.5 text-emerald-400 text-sm font-medium">
+              <CheckCircle size={16} /> Saved successfully
+            </span>
+          )}
+          {saveStatus === 'error' && (
+            <span className="flex items-center gap-1.5 text-red-400 text-sm font-medium">
+              <XCircle size={16} /> Save failed – check backend
+            </span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 font-medium transition-all shadow-lg shadow-indigo-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? <RefreshCw className="animate-spin" size={20}/> : <Save size={20} />}
+            {isSaving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
