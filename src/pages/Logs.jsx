@@ -187,6 +187,35 @@ const Logs = () => {
     });
   }, [logs, searchTerm, statusFilter, dateFilter]);
 
+  const handleExportCSV = () => {
+    const headers = ['Event ID', 'Camera', 'Type', 'Confidence (%)', 'Status', 'Timestamp'];
+    const rows = filteredLogs.map(log => {
+      const ts = log.timestamp?.toDate?.()
+        ? log.timestamp.toDate()
+        : new Date(log.timestamp ?? 0);
+      return [
+        log.id,
+        log.camera || '',
+        log.type || '',
+        log.confidence != null ? (log.confidence * 100).toFixed(0) : '',
+        log.status || '',
+        ts.toISOString(),
+      ];
+    });
+
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `secureguard-events-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case 'confirmed':  return <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><AlertTriangle size={12}/> Confirmed</span>;
@@ -211,7 +240,11 @@ const Logs = () => {
           <h2 className="text-2xl font-bold text-white">Events Log</h2>
           <p className="text-slate-400">Review and audit detection history</p>
         </div>
-        <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+        <button
+          onClick={handleExportCSV}
+          disabled={filteredLogs.length === 0}
+          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+        >
           <Download size={18} /> Export CSV
         </button>
       </div>
