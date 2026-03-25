@@ -17,7 +17,8 @@ const LiveRoom = () => {
   const canvasRef       = useRef(null);
   const videoContainerRef = useRef(null);
 
-  const [frameSrc, setFrameSrc] = useState('');
+  const [frameSrc, setFrameSrc]         = useState('');
+  const [restrictedZone, setRestrictedZone] = useState([]);
 
   // ── WebSocket connection ─────────────────────────────────────────────
   useEffect(() => {
@@ -34,6 +35,11 @@ const LiveRoom = () => {
     // Workflow 1 – update the <img> with each incoming annotated frame
     socketRef.current.on('processed_frame', (dataUri) => {
       setFrameSrc(dataUri);
+    });
+
+    // Workflow 2 – receive the confirmed zone broadcast from the server
+    socketRef.current.on('restricted_zone_updated', (data) => {
+      setRestrictedZone(data.zone || []);
     });
 
     socketRef.current.on('alert_batch', (detections) => {
@@ -149,11 +155,31 @@ const LiveRoom = () => {
             className={`absolute top-0 left-0 w-full h-full pointer-events-none z-10 ${isDrawingMode ? 'opacity-0' : ''}`}
           />
 
+          {/* Persistent restricted-zone SVG (hidden while actively redrawing) */}
+          {restrictedZone.length >= 3 && !isDrawingMode && (
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none z-10"
+              viewBox="0 0 1 1"
+              preserveAspectRatio="none"
+            >
+              <polygon
+                points={restrictedZone.map(p => `${p.x},${p.y}`).join(' ')}
+                fill="rgba(99,102,241,0.15)"
+                stroke="#6366f1"
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          )}
+
           {/* VCA drawing overlay */}
           {isDrawingMode && (
             <DrawingOverlay
               containerRef={videoContainerRef}
               onClose={() => setIsDrawingMode(false)}
+              onSubmitZone={(zone) =>
+                socketRef.current?.emit('update_restricted_zone', { zone })
+              }
             />
           )}
         </div>

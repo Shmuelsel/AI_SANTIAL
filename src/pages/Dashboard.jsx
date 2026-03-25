@@ -4,15 +4,15 @@ import {
   ResponsiveContainer, AreaChart, Area,
 } from 'recharts';
 import { ShieldCheck, AlertTriangle, Activity, Eye } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, onValue } from 'firebase/database';
+import { database } from '../firebase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Live stats derived from Firestore
+  // Live stats derived from Realtime Database
   const [stats, setStats] = useState({
     total: '—', falseAlarms: '—', threats: '—', cameras: '—',
   });
@@ -31,28 +31,38 @@ const Dashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // ── Firestore real-time stats ──────────────────────────────────────────
+  // ── Realtime Database stats ────────────────────────────────────────────
+  // Alerts are nested: /alerts/{camera_id}/{alert_id} — flatten before processing.
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(db, 'alerts'),
+    const alertsRef = ref(database, '/alerts');
+    const unsubscribe = onValue(
+      alertsRef,
       (snapshot) => {
-        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        const data = snapshot.val();
+        const docs = [];
+        if (data) {
+          Object.values(data).forEach(cameraAlerts => {
+            Object.values(cameraAlerts).forEach(alert => docs.push(alert));
+          });
+        }
 
         const total       = docs.length;
-        const falseAlarms = docs.filter(d => d.status === 'false_alarm').length;
-        const threats     = docs.filter(d => d.status === 'confirmed').length;
+        // contract statuses: 'open' | 'acknowledged' | 'resolved'
+        // 'resolved' maps to the operator dismissing / closing an alert
+        // 'acknowledged' maps to the operator confirming a threat
+        const falseAlarms = docs.filter(d => d.status === 'resolved').length;
+        const threats     = docs.filter(d => d.status === 'acknowledged').length;
 
-        setStats({ total, falseAlarms, threats, cameras: '—' });
+        setStats(prev => ({ ...prev, total, falseAlarms, threats }));
 
-        // Group by hour for the trend chart
+        // Group by hour for the trend chart using timestamp_iso (ISO 8601 string)
         const buckets = {};
         docs.forEach(alert => {
-          const raw = alert.timestamp;
-          const ts  = raw?.toDate ? raw.toDate() : new Date(raw ?? 0);
+          const ts  = alert.timestamp_iso ? new Date(alert.timestamp_iso) : new Date(0);
           const key = `${ts.getHours().toString().padStart(2, '0')}:00`;
           if (!buckets[key]) buckets[key] = { name: key, total: 0, falseAlarm: 0 };
           buckets[key].total++;
-          if (alert.status === 'false_alarm') buckets[key].falseAlarm++;
+          if (alert.status === 'resolved') buckets[key].falseAlarm++;
         });
 
         const sorted = Object.values(buckets).sort((a, b) =>
@@ -60,7 +70,7 @@ const Dashboard = () => {
         );
         setChartData(sorted);
       },
-      (err) => console.error('[Dashboard] Firestore error:', err)
+      (err) => console.error('[Dashboard] Realtime DB error:', err)
     );
     return () => unsubscribe();
   }, []);
@@ -122,7 +132,7 @@ const Dashboard = () => {
           color="blue"
         />
         <StatCard
-          title="False Alarms"
+          title="Resolved Alerts"
           value={String(stats.falseAlarms)}
           subValue={
             typeof stats.total === 'number' && stats.total > 0
@@ -133,7 +143,7 @@ const Dashboard = () => {
           color="red"
         />
         <StatCard
-          title="Verified Threats"
+          title="Acknowledged Threats"
           value={String(stats.threats)}
           subValue="Operator-confirmed"
           icon={ShieldCheck}

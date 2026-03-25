@@ -11,7 +11,7 @@ import { Pen, Trash2, Save, X } from 'lucide-react';
  *   containerRef  – ref to the parent video-container element (used for sizing)
  *   onClose       – callback to exit drawing mode
  */
-const DrawingOverlay = ({ containerRef, onClose }) => {
+const DrawingOverlay = ({ containerRef, onClose, onSubmitZone }) => {
   const canvasRef = useRef(null);
   const [points, setPoints] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -104,6 +104,9 @@ const DrawingOverlay = ({ containerRef, onClose }) => {
 
     const isPolygon = points.length >= 3;
     const normalizedPoints = points.map(p => ({ x: p.nx, y: p.ny }));
+
+    // Emit the zone to all clients via Socket.IO (contract: update_restricted_zone)
+    onSubmitZone?.(normalizedPoints);
 
     const payload = {
       camera_id:  'CAM_1001',

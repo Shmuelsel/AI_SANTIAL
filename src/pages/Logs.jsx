@@ -4,8 +4,8 @@ import {
   AlertTriangle, CheckCircle, Ban, Activity,
   X, MapPin, Clock, Camera,
 } from 'lucide-react';
-import { collection, onSnapshot, doc as firestoreDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, onValue, update } from 'firebase/database';
+import { database } from '../firebase';
 
 // ── Investigation Modal ───────────────────────────────────────────────────────
 const EventModal = ({ event, onClose, onUpdateStatus }) => {
@@ -24,7 +24,7 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
           <div>
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               Investigation Details
-              <span className="text-slate-500 text-sm font-normal">#{event.id}</span>
+              <span className="text-slate-500 text-sm font-normal">#{event.alert_id}</span>
             </h3>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
@@ -35,13 +35,13 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
         {/* Snapshot */}
         <div className="relative h-64 bg-black w-full group">
           <img
-            src={event.thumbnailUrl || 'https://via.placeholder.com/600/0f172a/ffffff?text=No+Snapshot'}
+            src={event.snapshot_url || 'https://via.placeholder.com/600/0f172a/ffffff?text=No+Snapshot'}
             alt="Evidence"
             className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
           />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-6 pt-12">
             <span className="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-bold tracking-wide uppercase">
-              AI Detected: {event.type}
+              AI Detected: {event.alert_type}
             </span>
           </div>
         </div>
@@ -53,12 +53,8 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
               <Clock size={14} /> Timestamp
             </label>
             <p className="text-slate-200 font-mono text-sm">
-              {event.timestamp
-                ? new Date(
-                    typeof event.timestamp === 'object' && event.timestamp.toDate
-                      ? event.timestamp.toDate()
-                      : event.timestamp
-                  ).toLocaleString()
+              {event.timestamp_iso
+                ? new Date(event.timestamp_iso).toLocaleString()
                 : '—'}
             </p>
           </div>
@@ -67,22 +63,14 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
             <label className="text-xs text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-2">
               <Camera size={14} /> Source Camera
             </label>
-            <p className="text-slate-200 text-sm font-medium">{event.camera || '—'}</p>
+            <p className="text-slate-200 text-sm font-medium">{event.camera_id || '—'}</p>
           </div>
 
           <div className="space-y-1">
             <label className="text-xs text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-2">
-              <Activity size={14} /> Confidence Score
+              <Activity size={14} /> Severity
             </label>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-2 bg-slate-700 rounded-full max-w-[100px]">
-                <div
-                  className={`h-full rounded-full ${Number(event.confidence) > 0.8 ? 'bg-green-500' : 'bg-yellow-500'}`}
-                  style={{ width: `${event.confidence * 100}%` }}
-                />
-              </div>
-              <span className="text-white font-bold">{(event.confidence * 100).toFixed(0)}%</span>
-            </div>
+            <p className="text-slate-200 text-sm font-medium capitalize">{event.severity || '—'}</p>
           </div>
 
           <div className="space-y-1">
@@ -90,9 +78,9 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
               <MapPin size={14} /> Current Status
             </label>
             <div className="text-sm">
-              {event.status === 'confirmed'   && <span className="text-red-400 font-bold">Confirmed Threat</span>}
-              {event.status === 'false_alarm' && <span className="text-emerald-400 font-bold">False Alarm</span>}
-              {event.status === 'pending'     && <span className="text-yellow-400 font-bold">Pending Review</span>}
+              {event.status === 'acknowledged' && <span className="text-red-400 font-bold">Acknowledged Threat</span>}
+              {event.status === 'resolved'     && <span className="text-emerald-400 font-bold">Resolved</span>}
+              {event.status === 'open'         && <span className="text-yellow-400 font-bold">Open</span>}
             </div>
           </div>
         </div>
@@ -100,22 +88,22 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
         {/* Footer actions */}
         <div className="p-6 border-t border-slate-800 bg-slate-900 flex justify-end gap-3">
           <button
-            onClick={() => onUpdateStatus(event.id, 'false_alarm')}
+            onClick={() => onUpdateStatus(event.camera_id, event.alert_id, 'resolved')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2
-              ${event.status === 'false_alarm'
+              ${event.status === 'resolved'
                 ? 'bg-emerald-900/50 text-emerald-500 border border-emerald-500/50'
                 : 'bg-slate-800 text-slate-300 hover:bg-emerald-900/30 hover:text-emerald-400'}`}
           >
-            <CheckCircle size={16} /> Mark as False Alarm
+            <CheckCircle size={16} /> Mark as Resolved
           </button>
           <button
-            onClick={() => onUpdateStatus(event.id, 'confirmed')}
+            onClick={() => onUpdateStatus(event.camera_id, event.alert_id, 'acknowledged')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2
-              ${event.status === 'confirmed'
+              ${event.status === 'acknowledged'
                 ? 'bg-red-900/50 text-red-500 border border-red-500/50'
                 : 'bg-slate-800 text-slate-300 hover:bg-red-900/30 hover:text-red-400'}`}
           >
-            <AlertTriangle size={16} /> Confirm Threat
+            <AlertTriangle size={16} /> Acknowledge Threat
           </button>
         </div>
       </div>
@@ -132,76 +120,81 @@ const Logs = () => {
   const [dateFilter, setDateFilter]     = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  // ── Real-time Firestore listener ────────────────────────────────────
+  // ── Realtime Database listener ───────────────────────────────────────
+  // Alerts are nested: /alerts/{camera_id}/{alert_id} — flatten for the table.
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(db, 'alerts'),
+    const alertsRef = ref(database, '/alerts');
+    const unsubscribe = onValue(
+      alertsRef,
       (snapshot) => {
-        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Sort newest first
+        const data = snapshot.val();
+        const docs = [];
+        if (data) {
+          Object.values(data).forEach(cameraAlerts => {
+            Object.values(cameraAlerts).forEach(alert => docs.push(alert));
+          });
+        }
+        // Sort newest first using timestamp_iso
         docs.sort((a, b) => {
-          const ta = a.timestamp?.toDate?.() ?? new Date(a.timestamp ?? 0);
-          const tb = b.timestamp?.toDate?.() ?? new Date(b.timestamp ?? 0);
+          const ta = a.timestamp_iso ? new Date(a.timestamp_iso) : new Date(0);
+          const tb = b.timestamp_iso ? new Date(b.timestamp_iso) : new Date(0);
           return tb - ta;
         });
         setLogs(docs);
         setLoading(false);
       },
       (err) => {
-        console.error('[Logs] Firestore error:', err);
+        console.error('[Logs] Realtime DB error:', err);
         setLoading(false);
       }
     );
     return () => unsubscribe();
   }, []);
 
-  // ── Update Firestore document AND local state ────────────────────────
-  const handleUpdateStatus = async (id, newStatus) => {
+  // ── Update Realtime Database document AND local state ────────────────
+  const handleUpdateStatus = async (cameraId, alertId, newStatus) => {
     // Optimistic local update so the UI responds immediately
-    setLogs(prev => prev.map(log => (log.id === id ? { ...log, status: newStatus } : log)));
+    setLogs(prev => prev.map(log =>
+      log.alert_id === alertId ? { ...log, status: newStatus } : log
+    ));
     setSelectedEvent(prev => ({ ...prev, status: newStatus }));
 
     try {
-      await updateDoc(firestoreDoc(db, 'alerts', id), { status: newStatus });
+      await update(ref(database, `/alerts/${cameraId}/${alertId}`), { status: newStatus });
     } catch (err) {
-      console.error('[Logs] Failed to update Firestore:', err);
+      console.error('[Logs] Failed to update Realtime DB:', err);
       // Roll back on failure
-      setLogs(prev => prev.map(log => (log.id === id ? { ...log, status: log.status } : log)));
+      setLogs(prev => prev.map(log =>
+        log.alert_id === alertId ? { ...log, status: log.status } : log
+      ));
     }
   };
 
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
-      const camera = log.camera || '';
-      const id     = log.id     || '';
+      const cameraId = log.camera_id || '';
+      const alertId  = log.alert_id  || '';
       const matchesSearch = (
-        camera.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        id.toLowerCase().includes(searchTerm.toLowerCase())
+        cameraId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        alertId.toLowerCase().includes(searchTerm.toLowerCase())
       );
       const matchesStatus = statusFilter === 'all' || log.status === statusFilter;
-      const ts = log.timestamp?.toDate?.()
-        ? log.timestamp.toDate().toISOString()
-        : (log.timestamp || '');
+      const ts = log.timestamp_iso || '';
       const matchesDate = dateFilter === '' || ts.startsWith(dateFilter);
       return matchesSearch && matchesStatus && matchesDate;
     });
   }, [logs, searchTerm, statusFilter, dateFilter]);
 
   const handleExportCSV = () => {
-    const headers = ['Event ID', 'Camera', 'Type', 'Confidence (%)', 'Status', 'Timestamp'];
-    const rows = filteredLogs.map(log => {
-      const ts = log.timestamp?.toDate?.()
-        ? log.timestamp.toDate()
-        : new Date(log.timestamp ?? 0);
-      return [
-        log.id,
-        log.camera || '',
-        log.type || '',
-        log.confidence != null ? (log.confidence * 100).toFixed(0) : '',
-        log.status || '',
-        ts.toISOString(),
-      ];
-    });
+    const headers = ['Event ID', 'Camera', 'Alert Type', 'Severity', 'Status', 'Timestamp'];
+    const rows = filteredLogs.map(log => [
+      log.alert_id   || '',
+      log.camera_id  || '',
+      log.alert_type || '',
+      log.severity   || '',
+      log.status     || '',
+      log.timestamp_iso || '',
+    ]);
 
     const csv = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -218,9 +211,9 @@ const Logs = () => {
 
   const getStatusBadge = (status) => {
     switch (status) {
-      case 'confirmed':  return <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><AlertTriangle size={12}/> Confirmed</span>;
-      case 'false_alarm': return <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><CheckCircle size={12}/> False Alarm</span>;
-      default:            return <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><Activity size={12}/> Pending</span>;
+      case 'acknowledged': return <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><AlertTriangle size={12}/> Acknowledged</span>;
+      case 'resolved':     return <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><CheckCircle size={12}/> Resolved</span>;
+      default:             return <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><Activity size={12}/> Open</span>;
     }
   };
 
@@ -251,7 +244,7 @@ const Logs = () => {
 
       {/* Filters */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-wrap gap-4 items-center">
-        <div className="flex-1 relative min-w-[200px]">
+        <div className="flex-1 relative min-w-50">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <input
             type="text"
@@ -269,16 +262,16 @@ const Logs = () => {
             onChange={e => setStatusFilter(e.target.value)}
           >
             <option value="all">All Statuses</option>
-            <option value="confirmed">Confirmed Threats</option>
-            <option value="false_alarm">False Alarms</option>
-            <option value="pending">Pending Review</option>
+            <option value="acknowledged">Acknowledged Threats</option>
+            <option value="resolved">Resolved</option>
+            <option value="open">Open</option>
           </select>
         </div>
         <div className="relative">
           <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <input
             type="date"
-            className="bg-slate-800 border border-slate-700 text-slate-300 pl-10 pr-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 [color-scheme:dark]"
+            className="bg-slate-800 border border-slate-700 text-slate-300 pl-10 pr-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 scheme-dark"
             value={dateFilter}
             onChange={e => setDateFilter(e.target.value)}
           />
@@ -292,8 +285,8 @@ const Logs = () => {
             <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 text-sm uppercase tracking-wider">
               <th className="p-4 font-semibold">Event</th>
               <th className="p-4 font-semibold">Camera</th>
-              <th className="p-4 font-semibold">Type</th>
-              <th className="p-4 font-semibold">Confidence</th>
+              <th className="p-4 font-semibold">Alert Type</th>
+              <th className="p-4 font-semibold">Severity</th>
               <th className="p-4 font-semibold">Status</th>
               <th className="p-4 font-semibold text-right">Action</th>
             </tr>
@@ -302,44 +295,39 @@ const Logs = () => {
             {loading && (
               <tr>
                 <td colSpan="6" className="p-8 text-center text-slate-500">
-                  Loading alerts from Firestore…
+                  Loading alerts from Realtime Database…
                 </td>
               </tr>
             )}
 
             {!loading && filteredLogs.map(log => {
-              const ts = log.timestamp?.toDate?.()
-                ? log.timestamp.toDate()
-                : new Date(log.timestamp ?? 0);
+              const ts = log.timestamp_iso ? new Date(log.timestamp_iso) : new Date(0);
               return (
-                <tr key={log.id} className="hover:bg-slate-800/50 transition-colors group">
+                <tr key={log.alert_id} className="hover:bg-slate-800/50 transition-colors group">
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-slate-800 rounded-md overflow-hidden border border-slate-700">
                         <img
-                          src={log.thumbnailUrl || 'https://via.placeholder.com/48/0f172a/ffffff?text=+'}
+                          src={log.snapshot_url || 'https://via.placeholder.com/48/0f172a/ffffff?text=+'}
                           alt="Thumb"
                           className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity"
                         />
                       </div>
                       <div>
-                        <div className="font-bold text-white">{log.id}</div>
+                        <div className="font-bold text-white">{log.alert_id}</div>
                         <div className="text-xs text-slate-500">{ts.toLocaleTimeString()}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="p-4 font-medium">{log.camera || '—'}</td>
-                  <td className="p-4">{log.type || '—'}</td>
+                  <td className="p-4 font-medium">{log.camera_id || '—'}</td>
+                  <td className="p-4 capitalize">{log.alert_type || '—'}</td>
                   <td className="p-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-16 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${Number(log.confidence) > 0.8 ? 'bg-green-500' : 'bg-yellow-500'}`}
-                          style={{ width: `${log.confidence * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-xs">{(log.confidence * 100).toFixed(0)}%</span>
-                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium capitalize
+                      ${log.severity === 'high'   ? 'bg-red-900/60 text-red-300'     :
+                        log.severity === 'medium' ? 'bg-amber-900/60 text-amber-300' :
+                                                    'bg-slate-700 text-slate-400'}`}>
+                      {log.severity || '—'}
+                    </span>
                   </td>
                   <td className="p-4">{getStatusBadge(log.status)}</td>
                   <td className="p-4 text-right">
