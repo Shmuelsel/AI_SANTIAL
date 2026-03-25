@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { AlertTriangle, CheckCircle, Activity, Pen } from 'lucide-react';
 import DrawingOverlay from '../components/DrawingOverlay';
+import { database } from '../firebase';
+import { ref, onChildAdded } from 'firebase/database';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
 
@@ -43,6 +45,18 @@ const LiveRoom = () => {
     });
 
     return () => socketRef.current.disconnect();
+  }, []);
+
+  // ── Workflow 3 – Firebase Realtime Database alert subscription ────────
+  useEffect(() => {
+    const alertsRef = ref(database, '/alerts/CAM_1001');
+    const unsubscribe = onChildAdded(alertsRef, (snapshot) => {
+      const alert = snapshot.val();
+      if (alert && alert.status === 'open') {
+        setAlerts(prev => [alert, ...prev].slice(0, 10));
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   // ── Bounding-box drawing ─────────────────────────────────────────────
@@ -204,13 +218,25 @@ const LiveRoom = () => {
         </div>
         <div className="flex-1 overflow-auto p-2 space-y-2 custom-scrollbar">
           {alerts.map((alert, idx) => (
-            <div key={idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+            <div key={alert.alert_id ?? idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
               <div className="flex justify-between items-start mb-1">
-                <span className="text-red-400 font-bold text-sm">{alert.label}</span>
+                <span className="text-red-400 font-bold text-sm capitalize">{alert.alert_type}</span>
                 <span className="text-xs text-slate-500">
-                  {alert.timestamp ? alert.timestamp.split('T')[1] : ''}
+                  {alert.timestamp_iso ? alert.timestamp_iso.split('T')[1].slice(0, 8) : ''}
                 </span>
               </div>
+              <div className="flex justify-between items-center mt-1">
+                <span className="text-xs text-slate-400">{alert.global_id}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded font-medium
+                  ${alert.severity === 'high'   ? 'bg-red-900/60 text-red-300'    :
+                    alert.severity === 'medium' ? 'bg-amber-900/60 text-amber-300' :
+                                                  'bg-slate-700 text-slate-400'}`}>
+                  {alert.severity}
+                </span>
+              </div>
+              {alert.location?.zone_name && (
+                <p className="text-xs text-slate-500 mt-1 truncate">{alert.location.zone_name}</p>
+              )}
             </div>
           ))}
         </div>
