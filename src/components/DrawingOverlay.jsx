@@ -96,24 +96,39 @@ const DrawingOverlay = ({ containerRef, onClose }) => {
     setPoints(prev => [...prev, { px, py, nx, ny }]);
   }, []);
 
-  // ── POST normalised coordinates to backend ────────────────────────────
+  // ── POST normalised coordinates to backend (API contract §3.2) ───────
   const handleSave = async () => {
     if (points.length < 2) return;
     setIsSaving(true);
     setSaveStatus(null);
 
+    const isPolygon = points.length >= 3;
     const normalizedPoints = points.map(p => ({ x: p.nx, y: p.ny }));
 
+    const payload = {
+      camera_id:  'CAM_1001',
+      rule_type:  'zone',
+      name:       'Restricted Zone',
+      alert_type: 'intrusion',
+      active:     true,
+      geometry: {
+        type:   isPolygon ? 'polygon' : 'line',
+        points: normalizedPoints,
+      },
+      conditions: {
+        min_dwell_seconds:      30,
+        loitering_zone_returns: 3,
+      },
+    };
+
     try {
+      const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
       const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/vca-rule`,
+        `${serverUrl}/api/rules`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: points.length >= 3 ? 'polygon' : 'line',
-            points: normalizedPoints,
-          }),
+          body: JSON.stringify(payload),
         }
       );
       if (!res.ok) throw new Error(`Server responded with ${res.status}`);

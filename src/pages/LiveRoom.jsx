@@ -3,8 +3,7 @@ import { io } from 'socket.io-client';
 import { AlertTriangle, CheckCircle, Activity, Pen } from 'lucide-react';
 import DrawingOverlay from '../components/DrawingOverlay';
 
-const WS_URL       = import.meta.env.VITE_WS_URL;
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
 
 const LiveRoom = () => {
   const [alerts, setAlerts]                 = useState([]);
@@ -16,11 +15,23 @@ const LiveRoom = () => {
   const canvasRef       = useRef(null);
   const videoContainerRef = useRef(null);
 
+  const [frameSrc, setFrameSrc] = useState('');
+
   // ── WebSocket connection ─────────────────────────────────────────────
   useEffect(() => {
-    socketRef.current = io(WS_URL, {
-      transports: ['websocket'],
+    socketRef.current = io(SERVER_URL, {
+      transports: ['websocket', 'polling'],   // websocket preferred (contract §2.3)
       reconnectionAttempts: 5,
+    });
+
+    // Workflow 1 – subscribe to the camera stream on connect
+    socketRef.current.on('connect', () => {
+      socketRef.current.emit('subscribe_camera', { camera_id: 'CAM_1001' });
+    });
+
+    // Workflow 1 – update the <img> with each incoming annotated frame
+    socketRef.current.on('processed_frame', (dataUri) => {
+      setFrameSrc(dataUri);
     });
 
     socketRef.current.on('alert_batch', (detections) => {
@@ -113,7 +124,7 @@ const LiveRoom = () => {
         >
           <img
             ref={imgRef}
-            src={`${API_BASE_URL}/video_feed`}
+            src={frameSrc}
             className="w-full h-full object-contain"
             alt="Live camera stream"
           />
