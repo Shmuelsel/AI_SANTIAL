@@ -7,6 +7,8 @@ import {
 import { ref, onValue, update } from 'firebase/database';
 import { database } from '../firebase';
 
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+
 // ── Investigation Modal ───────────────────────────────────────────────────────
 const EventModal = ({ event, onClose, onUpdateStatus }) => {
   if (!event) return null;
@@ -149,6 +151,47 @@ const Logs = () => {
       }
     );
     return () => unsubscribe();
+  }, []);
+
+  // ── GET /api/events – seed the table on mount ───────────────────────
+  // Provides an immediate historical load. The Firebase onValue listener
+  // above will overlay richer real-time data once it arrives.
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/events`);
+        if (!res.ok) throw new Error(res.statusText);
+        const events = await res.json();
+
+        // Normalize REST shape { timestamp, camera_id, event_type, person_id }
+        // to match the table's expected fields
+        const normalized = events.map((ev, i) => ({
+          alert_id:      ev.alert_id     ?? `evt-${ev.camera_id}-${i}`,
+          camera_id:     ev.camera_id    ?? '—',
+          alert_type:    ev.event_type   ?? ev.alert_type   ?? '—',
+          severity:      ev.severity     ?? 'medium',
+          status:        ev.status       ?? 'open',
+          timestamp_iso: ev.timestamp    ?? ev.timestamp_iso ?? null,
+          snapshot_url:  ev.snapshot_url ?? null,
+          global_id:     ev.person_id    ?? ev.global_id    ?? null,
+        }));
+
+        // Sort newest first
+        normalized.sort((a, b) => {
+          const ta = a.timestamp_iso ? new Date(a.timestamp_iso) : new Date(0);
+          const tb = b.timestamp_iso ? new Date(b.timestamp_iso) : new Date(0);
+          return tb - ta;
+        });
+
+        // Only use REST data if Firebase has not yet returned anything
+        setLogs(prev => prev.length === 0 ? normalized : prev);
+        setLoading(false);
+      } catch (err) {
+        console.error('[Logs] /api/events error:', err);
+        setLoading(false);
+      }
+    };
+    fetchEvents();
   }, []);
 
   // ── Update Realtime Database document AND local state ────────────────

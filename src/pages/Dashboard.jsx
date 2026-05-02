@@ -75,26 +75,40 @@ const Dashboard = () => {
     return () => unsubscribe();
   }, []);
 
-  // ── Backend health metrics ─────────────────────────────────────────────
+  // ── GET /api/stats – total count, health metrics, detection trend ───────
   useEffect(() => {
-    const fetchHealth = async () => {
+    const fetchStats = async () => {
       try {
-        const res  = await fetch(`${API_BASE_URL}/api/health`);
+        const res  = await fetch(`${API_BASE_URL}/api/stats`);
         if (!res.ok) throw new Error(res.statusText);
         const data = await res.json();
+
+        // Authoritative total from the backend
+        if (data.total_alerts != null) {
+          setStats(prev => ({ ...prev, total: data.total_alerts }));
+        }
+
+        // Health bars – accept both camelCase and snake_case field names
+        const sh = data.system_health ?? {};
         setHealth({
-          serverLoad: data.serverLoad  ?? 0,
-          dbStorage:  data.dbStorage   ?? 0,
-          aiLatency:  data.aiLatency   ?? 0,
-          network:    data.network     ?? 0,
+          serverLoad: sh.cpu_load   ?? sh.serverLoad  ?? 0,
+          dbStorage:  sh.db_storage ?? sh.dbStorage   ?? 0,
+          aiLatency:  sh.ai_latency ?? sh.aiLatency   ?? 0,
+          network:    sh.network                      ?? 0,
         });
-      } catch {
-        // Backend not yet running – silently keep zeros
+
+        // Detection trend – use pre-aggregated backend data when available
+        if (Array.isArray(data.detection_trend) && data.detection_trend.length > 0) {
+          setChartData(data.detection_trend);
+        }
+      } catch (err) {
+        console.error('[Dashboard] /api/stats error:', err);
+        // Keep existing state on failure – zeros remain until next poll
       }
     };
-    fetchHealth();
-    // Refresh health every 30 s
-    const interval = setInterval(fetchHealth, 30_000);
+    fetchStats();
+    // Refresh every 30 s
+    const interval = setInterval(fetchStats, 30_000);
     return () => clearInterval(interval);
   }, []);
 
