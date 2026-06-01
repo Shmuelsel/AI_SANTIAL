@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Save, Bell, Shield, Server, Camera, RefreshCw, Volume2, Mail, Cpu, CheckCircle, XCircle } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+import { SERVER_URL as API_BASE_URL } from '../config';
 
 const Settings = () => {
   // State לניהול ההגדרות

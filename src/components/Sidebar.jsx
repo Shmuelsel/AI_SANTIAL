@@ -1,16 +1,21 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Video, FileText, Settings, Users, LogOut, ShieldCheck } from 'lucide-react';
+import {
+  LayoutDashboard, Video, FileText, Settings,
+  Users, LogOut, ShieldCheck, ClipboardList, Cctv,
+} from 'lucide-react';
 
 // מקבלים את onLogout
 const Sidebar = ({ onLogout }) => {
-  
+
   const navItems = [
-    { path: '/', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-    { path: '/live', icon: <Video size={20} />, label: 'Live Room' },
-    { path: '/logs', icon: <FileText size={20} />, label: 'Events Log' },
-    { path: '/users', icon: <Users size={20} />, label: 'Users' }, // הקישור החדש
-    { path: '/settings', icon: <Settings size={20} />, label: 'Settings' },
+    { path: '/',         icon: <LayoutDashboard size={20} />, label: 'Dashboard'    },
+    { path: '/live',     icon: <Video size={20} />,           label: 'Live Room'    },
+    { path: '/logs',     icon: <FileText size={20} />,        label: 'Events Log'   },
+    { path: '/activity', icon: <ClipboardList size={20} />,   label: 'Activity Log' }, // Step 2
+    { path: '/cameras',  icon: <Cctv size={20} />,            label: 'Cameras'      }, // Step 4
+    { path: '/users',    icon: <Users size={20} />,           label: 'Users'        },
+    { path: '/settings', icon: <Settings size={20} />,        label: 'Settings'     },
   ];
 
   return (
@@ -18,17 +23,18 @@ const Sidebar = ({ onLogout }) => {
       {/* Logo */}
       <div className="h-16 flex items-center px-6 border-b border-slate-800 gap-3">
         <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <ShieldCheck size={18} className="text-white" />
+          <ShieldCheck size={18} className="text-white" />
         </div>
         <span className="font-bold text-lg tracking-wide">SecureGuard</span>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-2">
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
+            end={item.path === '/'}   // exact match for Dashboard only
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                 isActive
@@ -45,8 +51,8 @@ const Sidebar = ({ onLogout }) => {
 
       {/* Logout Button */}
       <div className="p-4 border-t border-slate-800">
-        <button 
-          onClick={onLogout} // כאן הקסם קורה!
+        <button
+          onClick={onLogout}
           className="flex items-center gap-3 text-slate-400 hover:text-red-400 hover:bg-slate-800/50 w-full px-4 py-3 rounded-xl transition-all group"
         >
           <LogOut size={20} className="group-hover:text-red-500 transition-colors" />

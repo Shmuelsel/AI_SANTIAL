@@ -1,29 +1,66 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { AlertTriangle, CheckCircle, Activity, Pen } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Activity, Pen, Users } from 'lucide-react';
 import DrawingOverlay from '../components/DrawingOverlay';
 import { database } from '../firebase';
 import { ref, onChildAdded } from 'firebase/database';
+import { getScoreStyle, TRIGGER_LABELS } from '../utils/alertHelpers';
+import { SERVER_URL } from '../config';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+// ── Small reusable KPI score pill ─────────────────────────────────────────────
+const ScorePill = ({ label, score }) => {
+  const s = getScoreStyle(score);
+  return (
+    <div className={`${s.bg} rounded p-1 text-center`}>
+      <div className={`text-xs font-bold ${s.text}`}>{score}</div>
+      <div className="text-[10px] text-slate-500 leading-tight">{label}</div>
+    </div>
+  );
+};
+
+// ── Bounding-box drawing helper (hoisted as function to avoid TDZ error) ──────
+function drawSingleBox(ctx, detection, width, height) {
+  const { x, y, w, h } = detection.bbox;
+  const rectX = x * width,  rectY = y * height;
+  const rectW = w * width,  rectH = h * height;
+
+  ctx.beginPath();
+  ctx.lineWidth   = 3;
+  ctx.strokeStyle = '#00ff00';
+  ctx.rect(rectX, rectY, rectW, rectH);
+  ctx.stroke();
+
+  ctx.fillStyle = '#00ff00';
+  ctx.fillRect(rectX, rectY - 25, 120, 25);
+  ctx.fillStyle = 'black';
+  ctx.font      = 'bold 14px Arial';
+  ctx.fillText(
+    `${detection.label} ${(detection.confidence * 100).toFixed(0)}%`,
+    rectX + 5, rectY - 7
+  );
+}
 
 const LiveRoom = () => {
-  const [alerts, setAlerts]                 = useState([]);
+  const [alerts, setAlerts]                     = useState([]);
   const [activeDetections, setActiveDetections] = useState([]);
-  const [isDrawingMode, setIsDrawingMode]   = useState(false);
+  const [isDrawingMode, setIsDrawingMode]       = useState(false);
+  // NEW: persons array populated from tracking_update (contract §2.3)
+  const [persons, setPersons]                   = useState([]);
 
-  const socketRef       = useRef(null);
-  const imgRef          = useRef(null);
-  const canvasRef       = useRef(null);
+  const socketRef         = useRef(null);
+  const imgRef            = useRef(null);
+  const canvasRef         = useRef(null);
   const videoContainerRef = useRef(null);
 
-  const [frameSrc, setFrameSrc]         = useState('');
+  const [frameSrc, setFrameSrc]             = useState('');
   const [restrictedZone, setRestrictedZone] = useState([]);
 
-  // ── WebSocket connection ─────────────────────────────────────────────
+  // ── WebSocket connection ─────────────────────────────────────────────────────
   useEffect(() => {
-    socketRef.current = io(SERVER_URL, {
-      transports: ['websocket', 'polling'],   // websocket preferred (contract §2.3)
+    // Pass undefined (not '') so socket.io-client connects to the current
+    // page origin when SERVER_URL is empty (i.e. Vite proxy mode).
+    socketRef.current = io(SERVER_URL || undefined, {
+      transports: ['websocket', 'polling'],   // websocket preferred (contract §2.1)
       reconnectionAttempts: 5,
     });
 
@@ -50,10 +87,23 @@ const LiveRoom = () => {
       }
     });
 
+    // NEW – tracking_update: parse persons with decoupled KPI scores (contract §2.3)
+    socketRef.current.on('tracking_update', ({ persons: rawPersons }) => {
+      if (!Array.isArray(rawPersons)) return;
+      setPersons(
+        rawPersons.map(p => ({
+          ...p,
+          climbingScore:  p.scores?.climbing_score     ?? 0,
+          loiteringScore: p.scores?.loitering_score    ?? 0,
+          totalScore:     p.scores?.total_person_score ?? 0,
+        }))
+      );
+    });
+
     return () => socketRef.current.disconnect();
   }, []);
 
-  // ── Workflow 3 – Firebase Realtime Database alert subscription ────────
+  // ── Workflow 3 – Firebase Realtime Database alert subscription ───────────────
   useEffect(() => {
     const alertsRef = ref(database, '/alerts/CAM_1001');
     const unsubscribe = onChildAdded(alertsRef, (snapshot) => {
@@ -65,7 +115,7 @@ const LiveRoom = () => {
     return () => unsubscribe();
   }, []);
 
-  // ── Bounding-box drawing ─────────────────────────────────────────────
+  // ── Bounding-box canvas overlay ──────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     const img    = imgRef.current;
@@ -86,42 +136,15 @@ const LiveRoom = () => {
     return () => clearTimeout(timer);
   }, [activeDetections, isDrawingMode]);
 
-  const drawSingleBox = (ctx, detection, width, height) => {
-    const { x, y, w, h } = detection.bbox;
-    const rectX = x * width;
-    const rectY = y * height;
-    const rectW = w * width;
-    const rectH = h * height;
-
-    ctx.beginPath();
-    ctx.lineWidth   = 3;
-    ctx.strokeStyle = '#00ff00';
-    ctx.rect(rectX, rectY, rectW, rectH);
-    ctx.stroke();
-
-    ctx.fillStyle = '#00ff00';
-    ctx.fillRect(rectX, rectY - 25, 120, 25);
-
-    ctx.fillStyle = 'black';
-    ctx.font      = 'bold 14px Arial';
-    ctx.fillText(
-      `${detection.label} ${(detection.confidence * 100).toFixed(0)}%`,
-      rectX + 5,
-      rectY - 7
-    );
-  };
-
-  // ── Operator decision: emit via socket AND POST to REST API ──────────
+  // ── Operator decision: emit via socket AND POST to REST API ─────────────────
   const handleDecision = async (status) => {
     if (activeDetections.length === 0) return;
     const target = activeDetections[0];
 
-    // 1. Real-time channel – keeps the backend ML loop updated immediately
     socketRef.current.emit('feedback', { eventId: target.id, status });
 
-    // 2. REST channel – persists the decision and triggers downstream logic
     try {
-      await fetch(`${API_BASE_URL}/api/feedback`, {
+      await fetch(`${SERVER_URL}/api/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eventId: target.id, status }),
@@ -135,6 +158,8 @@ const LiveRoom = () => {
 
   return (
     <div className="grid grid-cols-12 gap-6 h-[calc(100vh-8rem)]">
+
+      {/* ── Main video area (9 columns) ─────────────────────────────────── */}
       <div className="col-span-9 flex flex-col gap-4">
 
         {/* Video feed + overlays */}
@@ -155,7 +180,7 @@ const LiveRoom = () => {
             className={`absolute top-0 left-0 w-full h-full pointer-events-none z-10 ${isDrawingMode ? 'opacity-0' : ''}`}
           />
 
-          {/* Persistent restricted-zone SVG (hidden while actively redrawing) */}
+          {/* Persistent restricted-zone SVG */}
           {restrictedZone.length >= 3 && !isDrawingMode && (
             <svg
               className="absolute inset-0 w-full h-full pointer-events-none z-10"
@@ -235,37 +260,142 @@ const LiveRoom = () => {
         </div>
       </div>
 
-      {/* Recent alerts sidebar */}
-      <div className="col-span-3 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-          <h3 className="font-semibold text-slate-100 flex items-center gap-2">
-            <Activity size={18} className="text-indigo-400" /> Recent Alerts
-          </h3>
+      {/* ── Right sidebar (3 columns): two stacked panels ───────────────── */}
+      <div className="col-span-3 flex flex-col gap-4 min-h-0 overflow-hidden">
+
+        {/* ── NEW: Live Persons Tracking Panel (Step 1) ─────────────────── */}
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden flex-shrink-0">
+          <div className="p-3 border-b border-slate-800 flex items-center gap-2">
+            <Users size={16} className="text-indigo-400" />
+            <h3 className="font-semibold text-slate-100 text-sm">Live Tracking</h3>
+            {persons.length > 0 && (
+              <span className="ml-auto text-xs bg-indigo-600/30 text-indigo-300 px-2 py-0.5 rounded-full font-mono">
+                {persons.length}
+              </span>
+            )}
+          </div>
+
+          <div className="overflow-auto p-2 space-y-2 custom-scrollbar max-h-56">
+            {persons.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-4">No persons in frame</p>
+            ) : (
+              persons.map(p => {
+                const totalStyle = getScoreStyle(p.totalScore);
+                return (
+                  <div
+                    key={p.global_id}
+                    className="bg-slate-800/50 p-2.5 rounded-lg border border-slate-700/50"
+                  >
+                    {/* Header: identity + total score badge */}
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-slate-100 font-bold text-sm">{p.global_id}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${totalStyle.bg} ${totalStyle.text}`}>
+                        {p.totalScore}
+                      </span>
+                    </div>
+
+                    {/* Three KPI sub-score cells */}
+                    <div className="grid grid-cols-3 gap-1">
+                      <ScorePill label="Climb"  score={p.climbingScore}  />
+                      <ScorePill label="Loiter" score={p.loiteringScore} />
+                      <ScorePill label="Total"  score={p.totalScore}     />
+                    </div>
+
+                    {/* Active alert types */}
+                    {p.alert_types?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {p.alert_types.map(t => (
+                          <span
+                            key={t}
+                            className="text-[10px] bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded capitalize"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
-        <div className="flex-1 overflow-auto p-2 space-y-2 custom-scrollbar">
-          {alerts.map((alert, idx) => (
-            <div key={alert.alert_id ?? idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-              <div className="flex justify-between items-start mb-1">
-                <span className="text-red-400 font-bold text-sm capitalize">{alert.alert_type}</span>
-                <span className="text-xs text-slate-500">
-                  {alert.timestamp_iso ? alert.timestamp_iso.split('T')[1].slice(0, 8) : ''}
-                </span>
-              </div>
-              <div className="flex justify-between items-center mt-1">
-                <span className="text-xs text-slate-400">{alert.global_id}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded font-medium
-                  ${alert.severity === 'high'   ? 'bg-red-900/60 text-red-300'    :
-                    alert.severity === 'medium' ? 'bg-amber-900/60 text-amber-300' :
-                                                  'bg-slate-700 text-slate-400'}`}>
-                  {alert.severity}
-                </span>
-              </div>
-              {alert.location?.zone_name && (
-                <p className="text-xs text-slate-500 mt-1 truncate">{alert.location.zone_name}</p>
-              )}
-            </div>
-          ))}
+
+        {/* ── Recent Alerts Panel (Step 5: trigger_type + scores) ─────────── */}
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden flex-1 min-h-0">
+          <div className="p-3 border-b border-slate-800 flex items-center gap-2">
+            <Activity size={16} className="text-indigo-400" />
+            <h3 className="font-semibold text-slate-100 text-sm">Recent Alerts</h3>
+          </div>
+
+          <div className="flex-1 overflow-auto p-2 space-y-2 custom-scrollbar">
+            {alerts.length === 0 && (
+              <p className="text-xs text-slate-500 text-center py-4">No alerts yet</p>
+            )}
+
+            {alerts.map((alert, idx) => {
+              const trigger = TRIGGER_LABELS[alert.trigger_type] ?? null;
+
+              return (
+                <div
+                  key={alert.alert_id ?? idx}
+                  className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50"
+                >
+                  {/* Top row: alert_type label + timestamp */}
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-red-400 font-bold text-sm capitalize">
+                      {alert.alert_type}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {alert.timestamp_iso ? alert.timestamp_iso.split('T')[1].slice(0, 8) : ''}
+                    </span>
+                  </div>
+
+                  {/* Step 5 – trigger_type badge (contract §5) */}
+                  {trigger && (
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded mb-1.5 ${trigger.color}`}>
+                      {trigger.icon} {trigger.label}
+                    </span>
+                  )}
+
+                  {/* Identity + severity chip */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-400">{alert.global_id}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium
+                      ${alert.severity === 'high'   ? 'bg-red-900/60 text-red-300'     :
+                        alert.severity === 'medium' ? 'bg-amber-900/60 text-amber-300' :
+                                                      'bg-slate-700 text-slate-400'}`}>
+                      {alert.severity}
+                    </span>
+                  </div>
+
+                  {/* Step 5 – KPI scores on the alert doc (contract §4.2) */}
+                  {alert.scores && (
+                    <div className="flex gap-1 mt-1.5">
+                      {[
+                        { label: 'C', score: alert.scores.climbing_score     },
+                        { label: 'L', score: alert.scores.loitering_score    },
+                        { label: 'T', score: alert.scores.total_person_score },
+                      ].map(({ label, score }) => {
+                        const s = getScoreStyle(score);
+                        return (
+                          <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${s.bg} ${s.text}`}>
+                            {label}:{score}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {alert.location?.zone_name && (
+                    <p className="text-xs text-slate-500 mt-1 truncate">{alert.location.zone_name}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
+
       </div>
     </div>
   );

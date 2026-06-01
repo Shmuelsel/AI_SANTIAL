@@ -23,7 +23,17 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // varsIgnorePattern  – ignore PascalCase/underscore variable declarations (e.g. React component imports)
+      // argsIgnorePattern  – same rule for function *parameters*, including destructured args
+      //                      (e.g. `icon: Icon` in StatCard; without eslint-plugin-react the JSX
+      //                      reference `<Icon />` is not counted as a usage of the arg `Icon`)
+      'no-unused-vars': [
+        'error',
+        {
+          varsIgnorePattern: '^[A-Z_]',
+          argsIgnorePattern: '^[A-Z_]',
+        },
+      ],
     },
   },
 ])

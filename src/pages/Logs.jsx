@@ -2,12 +2,52 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, Filter, Calendar, Download, Eye,
   AlertTriangle, CheckCircle, Ban, Activity,
-  X, MapPin, Clock, Camera,
+  X, MapPin, Clock, Camera, Zap,
 } from 'lucide-react';
 import { ref, onValue, update } from 'firebase/database';
 import { database } from '../firebase';
+import { TRIGGER_LABELS, getScoreStyle } from '../utils/alertHelpers';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+import { SERVER_URL } from '../config';
+
+// ── Trigger-type badge (contract §5) ─────────────────────────────────────────
+const TriggerBadge = ({ triggerType }) => {
+  if (!triggerType) return null;
+  const cfg = TRIGGER_LABELS[triggerType];
+  if (!cfg) return (
+    <span className="text-[10px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded capitalize">
+      {triggerType}
+    </span>
+  );
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.color}`}>
+      {cfg.icon} {cfg.label}
+    </span>
+  );
+};
+
+// ── KPI scores row (contract §4.2) ────────────────────────────────────────────
+const ScoreRow = ({ scores }) => {
+  if (!scores) return null;
+  const items = [
+    { key: 'climbing_score',     label: 'Climbing'  },
+    { key: 'loitering_score',    label: 'Loitering' },
+    { key: 'total_person_score', label: 'Total'     },
+  ];
+  return (
+    <div className="flex gap-2 flex-wrap">
+      {items.map(({ key, label }) => {
+        const score = scores[key] ?? 0;
+        const { text, bg } = getScoreStyle(score);
+        return (
+          <span key={key} className={`text-xs font-mono px-2 py-0.5 rounded ${bg} ${text}`}>
+            {label}: {score}
+          </span>
+        );
+      })}
+    </div>
+  );
+};
 
 // ── Investigation Modal ───────────────────────────────────────────────────────
 const EventModal = ({ event, onClose, onUpdateStatus }) => {
@@ -42,9 +82,15 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
             className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
           />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-6 pt-12">
-            <span className="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-bold tracking-wide uppercase">
-              AI Detected: {event.alert_type}
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-bold tracking-wide uppercase">
+                AI Detected: {event.alert_type}
+              </span>
+              {/* Step 5 – trigger_type badge in modal */}
+              {event.trigger_type && (
+                <TriggerBadge triggerType={event.trigger_type} />
+              )}
+            </div>
           </div>
         </div>
 
@@ -55,9 +101,7 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
               <Clock size={14} /> Timestamp
             </label>
             <p className="text-slate-200 font-mono text-sm">
-              {event.timestamp_iso
-                ? new Date(event.timestamp_iso).toLocaleString()
-                : '—'}
+              {event.timestamp_iso ? new Date(event.timestamp_iso).toLocaleString() : '—'}
             </p>
           </div>
 
@@ -85,6 +129,33 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
               {event.status === 'open'         && <span className="text-yellow-400 font-bold">Open</span>}
             </div>
           </div>
+
+          {/* Step 5 – KPI Scores section (contract §4.2) */}
+          {event.scores && (
+            <div className="col-span-2 space-y-1">
+              <label className="text-xs text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-2">
+                <Activity size={14} /> KPI Scores at Alert
+              </label>
+              <ScoreRow scores={event.scores} />
+            </div>
+          )}
+
+          {/* Zone info */}
+          {event.location?.zone_name && (
+            <div className="col-span-2 space-y-1">
+              <label className="text-xs text-slate-500 uppercase tracking-wider font-semibold flex items-center gap-2">
+                <MapPin size={14} /> Zone
+              </label>
+              <p className="text-slate-200 text-sm">
+                {event.location.zone_name}
+                {event.location.zone_sensitivity != null && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    (sensitivity {event.location.zone_sensitivity})
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Footer actions */}
@@ -115,15 +186,15 @@ const EventModal = ({ event, onClose, onUpdateStatus }) => {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const Logs = () => {
-  const [logs, setLogs]                 = useState([]);
-  const [loading, setLoading]           = useState(true);
-  const [searchTerm, setSearchTerm]     = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFilter, setDateFilter]     = useState('');
-  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [logs,           setLogs]           = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [searchTerm,     setSearchTerm]     = useState('');
+  const [statusFilter,   setStatusFilter]   = useState('all');
+  const [triggerFilter,  setTriggerFilter]  = useState('all');  // NEW – Step 5
+  const [dateFilter,     setDateFilter]     = useState('');
+  const [selectedEvent,  setSelectedEvent]  = useState(null);
 
-  // ── Realtime Database listener ───────────────────────────────────────
-  // Alerts are nested: /alerts/{camera_id}/{alert_id} — flatten for the table.
+  // ── Realtime Database listener ───────────────────────────────────────────
   useEffect(() => {
     const alertsRef = ref(database, '/alerts');
     const unsubscribe = onValue(
@@ -136,7 +207,6 @@ const Logs = () => {
             Object.values(cameraAlerts).forEach(alert => docs.push(alert));
           });
         }
-        // Sort newest first using timestamp_iso
         docs.sort((a, b) => {
           const ta = a.timestamp_iso ? new Date(a.timestamp_iso) : new Date(0);
           const tb = b.timestamp_iso ? new Date(b.timestamp_iso) : new Date(0);
@@ -153,9 +223,7 @@ const Logs = () => {
     return () => unsubscribe();
   }, []);
 
-  // ── GET /api/events – seed the table on mount ───────────────────────
-  // Provides an immediate historical load. The Firebase onValue listener
-  // above will overlay richer real-time data once it arrives.
+  // ── GET /api/events – seed the table on mount ───────────────────────────
   useEffect(() => {
     const fetchEvents = async () => {
       try {
@@ -163,27 +231,26 @@ const Logs = () => {
         if (!res.ok) throw new Error(res.statusText);
         const events = await res.json();
 
-        // Normalize REST shape { timestamp, camera_id, event_type, person_id }
-        // to match the table's expected fields
         const normalized = events.map((ev, i) => ({
           alert_id:      ev.alert_id     ?? `evt-${ev.camera_id}-${i}`,
           camera_id:     ev.camera_id    ?? '—',
           alert_type:    ev.event_type   ?? ev.alert_type   ?? '—',
+          trigger_type:  ev.trigger_type ?? null,   // NEW – preserve if present
           severity:      ev.severity     ?? 'medium',
           status:        ev.status       ?? 'open',
           timestamp_iso: ev.timestamp    ?? ev.timestamp_iso ?? null,
           snapshot_url:  ev.snapshot_url ?? null,
           global_id:     ev.person_id    ?? ev.global_id    ?? null,
+          scores:        ev.scores       ?? null,             // NEW
+          location:      ev.location     ?? null,             // NEW
         }));
 
-        // Sort newest first
         normalized.sort((a, b) => {
           const ta = a.timestamp_iso ? new Date(a.timestamp_iso) : new Date(0);
           const tb = b.timestamp_iso ? new Date(b.timestamp_iso) : new Date(0);
           return tb - ta;
         });
 
-        // Only use REST data if Firebase has not yet returned anything
         setLogs(prev => prev.length === 0 ? normalized : prev);
         setLoading(false);
       } catch (err) {
@@ -194,9 +261,8 @@ const Logs = () => {
     fetchEvents();
   }, []);
 
-  // ── Update Realtime Database document AND local state ────────────────
+  // ── Update Realtime Database document AND local state ──────────────────
   const handleUpdateStatus = async (cameraId, alertId, newStatus) => {
-    // Optimistic local update so the UI responds immediately
     setLogs(prev => prev.map(log =>
       log.alert_id === alertId ? { ...log, status: newStatus } : log
     ));
@@ -206,13 +272,10 @@ const Logs = () => {
       await update(ref(database, `/alerts/${cameraId}/${alertId}`), { status: newStatus });
     } catch (err) {
       console.error('[Logs] Failed to update Realtime DB:', err);
-      // Roll back on failure
-      setLogs(prev => prev.map(log =>
-        log.alert_id === alertId ? { ...log, status: log.status } : log
-      ));
     }
   };
 
+  // ── Filtered logs (Step 5: triggerFilter added) ────────────────────────
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
       const cameraId = log.camera_id || '';
@@ -221,21 +284,23 @@ const Logs = () => {
         cameraId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         alertId.toLowerCase().includes(searchTerm.toLowerCase())
       );
-      const matchesStatus = statusFilter === 'all' || log.status === statusFilter;
+      const matchesStatus  = statusFilter  === 'all' || log.status       === statusFilter;
+      const matchesTrigger = triggerFilter === 'all' || log.trigger_type === triggerFilter;
       const ts = log.timestamp_iso || '';
       const matchesDate = dateFilter === '' || ts.startsWith(dateFilter);
-      return matchesSearch && matchesStatus && matchesDate;
+      return matchesSearch && matchesStatus && matchesTrigger && matchesDate;
     });
-  }, [logs, searchTerm, statusFilter, dateFilter]);
+  }, [logs, searchTerm, statusFilter, triggerFilter, dateFilter]);
 
   const handleExportCSV = () => {
-    const headers = ['Event ID', 'Camera', 'Alert Type', 'Severity', 'Status', 'Timestamp'];
-    const rows = filteredLogs.map(log => [
-      log.alert_id   || '',
-      log.camera_id  || '',
-      log.alert_type || '',
-      log.severity   || '',
-      log.status     || '',
+    const headers = ['Event ID', 'Camera', 'Alert Type', 'Trigger Type', 'Severity', 'Status', 'Timestamp'];
+    const rows    = filteredLogs.map(log => [
+      log.alert_id      || '',
+      log.camera_id     || '',
+      log.alert_type    || '',
+      log.trigger_type  || '',
+      log.severity      || '',
+      log.status        || '',
       log.timestamp_iso || '',
     ]);
 
@@ -254,9 +319,12 @@ const Logs = () => {
 
   const getStatusBadge = (status) => {
     switch (status) {
-      case 'acknowledged': return <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><AlertTriangle size={12}/> Acknowledged</span>;
-      case 'resolved':     return <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><CheckCircle size={12}/> Resolved</span>;
-      default:             return <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><Activity size={12}/> Open</span>;
+      case 'acknowledged':
+        return <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><AlertTriangle size={12}/> Acknowledged</span>;
+      case 'resolved':
+        return <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><CheckCircle size={12}/> Resolved</span>;
+      default:
+        return <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-xs font-medium flex items-center w-fit gap-1"><Activity size={12}/> Open</span>;
     }
   };
 
@@ -287,7 +355,9 @@ const Logs = () => {
 
       {/* Filters */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-wrap gap-4 items-center">
-        <div className="flex-1 relative min-w-50">
+
+        {/* Search */}
+        <div className="flex-1 relative min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <input
             type="text"
@@ -297,6 +367,8 @@ const Logs = () => {
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
+
+        {/* Status filter */}
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <select
@@ -310,6 +382,24 @@ const Logs = () => {
             <option value="open">Open</option>
           </select>
         </div>
+
+        {/* NEW – Trigger type filter (Step 5) */}
+        <div className="relative">
+          <Zap className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+          <select
+            className="bg-slate-800 border border-slate-700 text-white pl-10 pr-8 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer"
+            value={triggerFilter}
+            onChange={e => setTriggerFilter(e.target.value)}
+          >
+            <option value="all">All Triggers</option>
+            <option value="CLIMBING">⚠️ Climbing</option>
+            <option value="LOITERING">⏱ Loitering</option>
+            <option value="COMBINED">🔀 Combined Risk</option>
+            <option value="INTRUSION">🚨 Intrusion</option>
+          </select>
+        </div>
+
+        {/* Date filter */}
         <div className="relative">
           <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <input
@@ -329,6 +419,8 @@ const Logs = () => {
               <th className="p-4 font-semibold">Event</th>
               <th className="p-4 font-semibold">Camera</th>
               <th className="p-4 font-semibold">Alert Type</th>
+              {/* NEW column – Step 5 */}
+              <th className="p-4 font-semibold">Trigger</th>
               <th className="p-4 font-semibold">Severity</th>
               <th className="p-4 font-semibold">Status</th>
               <th className="p-4 font-semibold text-right">Action</th>
@@ -337,7 +429,7 @@ const Logs = () => {
           <tbody className="text-slate-300 text-sm divide-y divide-slate-800">
             {loading && (
               <tr>
-                <td colSpan="6" className="p-8 text-center text-slate-500">
+                <td colSpan="7" className="p-8 text-center text-slate-500">
                   Loading alerts from Realtime Database…
                 </td>
               </tr>
@@ -349,7 +441,7 @@ const Logs = () => {
                 <tr key={log.alert_id} className="hover:bg-slate-800/50 transition-colors group">
                   <td className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-slate-800 rounded-md overflow-hidden border border-slate-700">
+                      <div className="w-12 h-12 bg-slate-800 rounded-md overflow-hidden border border-slate-700 flex-shrink-0">
                         <img
                           src={log.snapshot_url || 'https://via.placeholder.com/48/0f172a/ffffff?text=+'}
                           alt="Thumb"
@@ -364,6 +456,13 @@ const Logs = () => {
                   </td>
                   <td className="p-4 font-medium">{log.camera_id || '—'}</td>
                   <td className="p-4 capitalize">{log.alert_type || '—'}</td>
+
+                  {/* NEW – trigger_type badge (Step 5) */}
+                  <td className="p-4">
+                    <TriggerBadge triggerType={log.trigger_type} />
+                    {!log.trigger_type && <span className="text-slate-600 text-xs">—</span>}
+                  </td>
+
                   <td className="p-4">
                     <span className={`text-xs px-2 py-0.5 rounded font-medium capitalize
                       ${log.severity === 'high'   ? 'bg-red-900/60 text-red-300'     :
@@ -388,7 +487,7 @@ const Logs = () => {
 
             {!loading && filteredLogs.length === 0 && (
               <tr>
-                <td colSpan="6" className="p-8 text-center text-slate-500">
+                <td colSpan="7" className="p-8 text-center text-slate-500">
                   <div className="flex flex-col items-center gap-2">
                     <Ban size={32} />
                     <p>No logs found matching your filters.</p>
