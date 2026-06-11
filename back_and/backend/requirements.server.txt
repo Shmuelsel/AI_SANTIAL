@@ -19,6 +19,7 @@ flask-cors
 
 # --- Production WSGI server (threading mode — async_mode="threading") ---
 gunicorn
+eventlet
 simple-websocket
 
 # --- Firebase Realtime Database + Storage (demo video caching) ---
