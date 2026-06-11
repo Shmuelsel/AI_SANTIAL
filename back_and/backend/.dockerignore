@@ -1,8 +1,8 @@
 # Exclude the virtual environment — this can be several GB
 venv/
 
-# Exclude edge-node code and its runner (not deployed on Azure)
-edge_node/
+# edge_node/ is imported by central_server.video_worker (in-process pipeline),
+# so it must be included in the server image. Only its standalone runner is excluded.
 run_edge.py
 run_debug.py
 debug/
