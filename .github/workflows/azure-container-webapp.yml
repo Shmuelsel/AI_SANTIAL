@@ -63,8 +63,8 @@ jobs:
         with:
           push: true
           tags: ghcr.io/${{ env.REPO }}:${{ github.sha }}
-          context: ./backend          # server code only — excludes edge_node/ and venv/
-          file: ./backend/Dockerfile  # server-only Dockerfile
+          context: ./back_and/backend       # server code only — excludes edge_node/ and venv/
+          file: ./back_and/backend/Dockerfile  # server-only Dockerfile
 
   deploy:
     permissions:
