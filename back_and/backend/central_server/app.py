@@ -38,9 +38,12 @@ from central_server.camera_store   import CameraStore
 from central_server.firebase_client import FirebaseClient
 from central_server.alert_manager  import AlertManager
 from central_server import zone_store
+from central_server import model_manager
+from central_server.video_worker     import VideoWorkerManager
 from central_server.api.rules_api    import rules_bp, init_rules_api
 from central_server.api.cameras_api  import cameras_bp, init_cameras_api
 from central_server.api.stream_api   import register_socket_events
+from central_server.api.video_api    import video_bp, init_video_api
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (shared across requests inside one process)
@@ -55,6 +58,17 @@ _camera_store   = CameraStore()       # dynamic camera RTSP configs
 _firebase       = FirebaseClient(dry_run=False)
 _alerts         = AlertManager(_firebase)
 _known_cameras: set = set()   # tracks first-seen cameras for camera_status events
+
+# In-process video pipeline (Live = looping local file, Demo = Firebase Storage file).
+# Wired up fully once create_app() registers _annotate / process_tracking_payload
+# below; instantiated here so the api blueprint and /api/health can reference it.
+_video_manager = VideoWorkerManager(
+    socketio       = socketio,
+    ingest_fn      = lambda *a, **kw: process_tracking_payload(*a, **kw),
+    annotate_fn    = lambda *a, **kw: _annotate(*a, **kw),
+    zone_fn        = zone_store.get,
+    cache_fn       = lambda camera_id: _annotation_cache.get(camera_id, {}),
+)
 
 # Pending camera configs waiting to be delivered to the Edge Node via /ingest response.
 # Written by POST /api/cameras; consumed and cleared by the next /ingest call.
@@ -186,13 +200,150 @@ def purge_debug_rules():
         print("[INFO] No debug rules found — ruleset is clean.")
 
 
+def process_tracking_payload(camera_id: str, persons: list, frame_w: int, frame_h: int, timestamp: float) -> dict:
+    """
+    Core AI pipeline — Re-ID, spatial risk, threat memory, KPI scoring, alerts,
+    event/activity logging, annotation cache update, and tracking_update emit.
+
+    Used by both the legacy POST /ingest route and the in-process VideoWorker,
+    so the entire scoring/alert/Firebase pipeline is exercised identically
+    regardless of where the frames come from.
+    """
+    pipeline_start = time.time()   # wall-clock start for processing-time metric
+
+    # Track inter-ingest interval for the AI-latency health metric.
+    if camera_id in _last_ingest_ts:
+        _ingest_intervals_ms.append((pipeline_start - _last_ingest_ts[camera_id]) * 1000)
+    _last_ingest_ts[camera_id] = pipeline_start
+
+    # Emit camera_status: connected on first payload from this camera.
+    if camera_id not in _known_cameras:
+        _known_cameras.add(camera_id)
+        socketio.emit("camera_status", {
+            "camera_id": camera_id,
+            "status":    "connected",
+            "timestamp": timestamp,
+        })
+        print(f"[INFO] Camera online: {camera_id}")
+
+    person_map = {p.person_id: p for p in persons}
+    box_map    = {p.person_id: p.box for p in persons}
+
+    # 1. Re-ID
+    global_ids, effective_times = _reid.process(persons)
+
+    # 2. Spatial risk evaluation — stateless, computes raw evidence score
+    rules        = _store.get_rules(camera_id)
+    risk_results = _spatial.evaluate(
+        persons, rules, frame_w, frame_h, global_ids, effective_times
+    )
+
+    # 2.5 Dynamic Threat Memory — applies score decay, zone-exit penalty, and
+    #     benign-trajectory reduction before any alert or event logic runs.
+    #     Mutates risk_results in-place; also purges tracks gone > THREAT_MEMORY_TTL.
+    _threat_memory.adjust(risk_results, persons, global_ids, pipeline_start)
+    _threat_memory.purge_stale(pipeline_start)
+
+    # 2.6 KPI Scoring — compute climbing_score, loitering_score, total_person_score
+    #     for each tracked identity and build a global_id → scores lookup dict.
+    scores_map: dict = {}
+    for r in risk_results:
+        eff = effective_times.get(str(r.local_id), int(
+            next((p.time_in_frame_seconds for p in persons if p.person_id == r.local_id), 0)
+        ))
+        scores_map[r.global_id] = _scoring.compute(
+            global_id         = r.global_id,
+            alert_types       = r.alert_types,
+            eff_time_seconds  = eff,
+            min_dwell_seconds = r.min_dwell_seconds,
+            zone_sensitivity  = r.zone_sensitivity,
+            now               = pipeline_start,
+        )
+    _scoring.purge_stale(pipeline_start)
+
+    # 3. Alert management (dedup + Firebase dispatch + socket emit)
+    _alerts.process(risk_results, camera_id, person_map, box_map, scores_map)
+
+    # 4. Zone-entry event logging — fire once per new intrusion (enter transition only).
+    #    Uses a separate in-memory log and Firebase /events path; not subject to
+    #    AlertManager's 60-second cooldown, so every distinct zone entry is captured.
+    now_in_zone  = {r.global_id for r in risk_results if r.in_zone}
+    prev_in_zone = _in_zone_persons.get(camera_id, set())
+    new_entries  = now_in_zone - prev_in_zone     # global IDs that just entered a zone
+    _in_zone_persons[camera_id] = now_in_zone
+
+    result_by_gid = {r.global_id: r for r in risk_results}
+    for gid in new_entries:
+        r          = result_by_gid.get(gid)
+        event_type = r.alert_types[0] if (r and r.alert_types) else "intrusion"
+        evt        = _make_event(camera_id, event_type, gid, r.risk_score if r else 0)
+        _events_log.appendleft(evt)
+        _firebase.push_event(evt)
+
+    # 4.5 Daily Activity Log — upsert one document per (date, camera, identity).
+    #     Runs for every tracked person, not only those in alert state.
+    now_dt   = datetime.now(timezone.utc)
+    date_key = now_dt.strftime("%Y%m%d")
+    date_str = now_dt.strftime("%Y-%m-%d")
+    now_iso  = now_dt.isoformat()
+    for r in risk_results:
+        person  = person_map.get(r.local_id)
+        t_frame = effective_times.get(str(r.local_id),
+                                     int(person.time_in_frame_seconds) if person else 0)
+        zones   = ([r.triggered_rule_name] if r.triggered_rule_name and r.in_zone else [])
+        fired   = r.alert_types if r.in_zone else []
+        _firebase.upsert_activity_log(
+            camera_id             = camera_id,
+            global_id             = r.global_id,
+            time_in_frame_seconds = t_frame,
+            zones_visited         = zones,
+            alert_types           = fired,
+            scores                = scores_map.get(r.global_id, {}),
+            now_iso               = now_iso,
+            date_key              = date_key,
+            date_str              = date_str,
+        )
+
+    # 5. Cache annotation state — /stream_frame and the VideoWorker read this to
+    #    annotate frames at STREAM_FPS without re-running the AI pipeline each time.
+    _annotation_cache[camera_id] = {
+        "risk_results":    risk_results,
+        "global_ids":      global_ids,
+        "effective_times": effective_times,
+        "person_map":      person_map,
+    }
+
+    # 6. Emit tracking_update (sidebar data for the React dashboard)
+    socketio.emit("tracking_update", _build_tracking_update(
+        camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map
+    ))
+
+    # Record server-side AI pipeline processing time.
+    _processing_times_ms.append((time.time() - pipeline_start) * 1000)
+
+    # 7. Build response — KPI scores plus everything the legacy /ingest contract returns.
+    return {
+        "global_ids":      global_ids,
+        "effective_times": effective_times,
+        "alerts":          [r.local_id for r in risk_results if r.in_zone],
+        "alert_types":     {
+            str(r.local_id): r.alert_types
+            for r in risk_results if r.alert_types
+        },
+        "scores": {
+            str(r.local_id): scores_map.get(r.global_id, {})
+            for r in risk_results
+        },
+    }
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     CORS(app)
     socketio.init_app(
         app,
         cors_allowed_origins="*",
-        async_mode="gevent",
+        async_mode="threading",
     )
 
     # Inject socketio.emit into the alert manager so it can push alert_new events.
@@ -211,8 +362,19 @@ def create_app() -> Flask:
     init_cameras_api(_camera_store, _relay_camera_config)
     app.register_blueprint(cameras_bp)
 
+    init_video_api(_video_manager)
+    app.register_blueprint(video_bp)
+
     # Socket.IO event handlers
     register_socket_events(socketio)
+
+    # Start the default video worker (Live or Demo, per config.DEFAULT_VIDEO_MODE).
+    # Boot continues even if the video file/asset is missing — /api/health and
+    # /api/video-source will report status="stopped" until a valid mode is set.
+    try:
+        _video_manager.switch(config.DEFAULT_VIDEO_MODE)
+    except Exception as exc:
+        print(f"[WARNING] VideoWorkerManager: could not start '{config.DEFAULT_VIDEO_MODE}' mode at startup — {exc}")
 
     # ------------------------------------------------------------------
     # POST /ingest  — called by the Edge Node
@@ -220,8 +382,6 @@ def create_app() -> Flask:
 
     @app.post("/ingest")
     def ingest():
-        pipeline_start = time.time()   # wall-clock start for processing-time metric
-
         data = request.get_json(force=True, silent=True)
         if not data:
             return jsonify({"error": "empty payload"}), 400
@@ -231,132 +391,10 @@ def create_app() -> Flask:
         frame_h     = int(data.get("frame_height",  720))
         timestamp   = float(data.get("timestamp", time.time()))
         raw_persons = data.get("persons", [])
+        persons     = [_deserialise_person(p) for p in raw_persons]
 
-        # Track inter-ingest interval for the AI-latency health metric.
-        if camera_id in _last_ingest_ts:
-            _ingest_intervals_ms.append((pipeline_start - _last_ingest_ts[camera_id]) * 1000)
-        _last_ingest_ts[camera_id] = pipeline_start
+        response = process_tracking_payload(camera_id, persons, frame_w, frame_h, timestamp)
 
-        # Emit camera_status: connected on first payload from this camera.
-        if camera_id not in _known_cameras:
-            _known_cameras.add(camera_id)
-            socketio.emit("camera_status", {
-                "camera_id": camera_id,
-                "status":    "connected",
-                "timestamp": timestamp,
-            })
-            print(f"[INFO] Camera online: {camera_id}")
-
-        persons    = [_deserialise_person(p) for p in raw_persons]
-        person_map = {p.person_id: p for p in persons}
-        box_map    = {p.person_id: p.box for p in persons}
-
-        # 1. Re-ID
-        global_ids, effective_times = _reid.process(persons)
-
-        # 2. Spatial risk evaluation — stateless, computes raw evidence score
-        rules        = _store.get_rules(camera_id)
-        risk_results = _spatial.evaluate(
-            persons, rules, frame_w, frame_h, global_ids, effective_times
-        )
-
-        # 2.5 Dynamic Threat Memory — applies score decay, zone-exit penalty, and
-        #     benign-trajectory reduction before any alert or event logic runs.
-        #     Mutates risk_results in-place; also purges tracks gone > THREAT_MEMORY_TTL.
-        _threat_memory.adjust(risk_results, persons, global_ids, pipeline_start)
-        _threat_memory.purge_stale(pipeline_start)
-
-        # 2.6 KPI Scoring — compute climbing_score, loitering_score, total_person_score
-        #     for each tracked identity and build a global_id → scores lookup dict.
-        scores_map: dict = {}
-        for r in risk_results:
-            eff = effective_times.get(str(r.local_id), int(
-                next((p.time_in_frame_seconds for p in persons if p.person_id == r.local_id), 0)
-            ))
-            scores_map[r.global_id] = _scoring.compute(
-                global_id         = r.global_id,
-                alert_types       = r.alert_types,
-                eff_time_seconds  = eff,
-                min_dwell_seconds = r.min_dwell_seconds,
-                zone_sensitivity  = r.zone_sensitivity,
-                now               = pipeline_start,
-            )
-        _scoring.purge_stale(pipeline_start)
-
-        # 3. Alert management (dedup + Firebase dispatch + socket emit)
-        _alerts.process(risk_results, camera_id, person_map, box_map, scores_map)
-
-        # 4. Zone-entry event logging — fire once per new intrusion (enter transition only).
-        #    Uses a separate in-memory log and Firebase /events path; not subject to
-        #    AlertManager's 60-second cooldown, so every distinct zone entry is captured.
-        now_in_zone  = {r.global_id for r in risk_results if r.in_zone}
-        prev_in_zone = _in_zone_persons.get(camera_id, set())
-        new_entries  = now_in_zone - prev_in_zone     # global IDs that just entered a zone
-        _in_zone_persons[camera_id] = now_in_zone
-
-        result_by_gid = {r.global_id: r for r in risk_results}
-        for gid in new_entries:
-            r          = result_by_gid.get(gid)
-            event_type = r.alert_types[0] if (r and r.alert_types) else "intrusion"
-            evt        = _make_event(camera_id, event_type, gid, r.risk_score if r else 0)
-            _events_log.appendleft(evt)
-            _firebase.push_event(evt)
-
-        # 4.5 Daily Activity Log — upsert one document per (date, camera, identity).
-        #     Runs for every tracked person, not only those in alert state.
-        now_dt   = datetime.now(timezone.utc)
-        date_key = now_dt.strftime("%Y%m%d")
-        date_str = now_dt.strftime("%Y-%m-%d")
-        now_iso  = now_dt.isoformat()
-        for r in risk_results:
-            person  = person_map.get(r.local_id)
-            t_frame = effective_times.get(str(r.local_id),
-                                         int(person.time_in_frame_seconds) if person else 0)
-            zones   = ([r.triggered_rule_name] if r.triggered_rule_name and r.in_zone else [])
-            fired   = r.alert_types if r.in_zone else []
-            _firebase.upsert_activity_log(
-                camera_id             = camera_id,
-                global_id             = r.global_id,
-                time_in_frame_seconds = t_frame,
-                zones_visited         = zones,
-                alert_types           = fired,
-                scores                = scores_map.get(r.global_id, {}),
-                now_iso               = now_iso,
-                date_key              = date_key,
-                date_str              = date_str,
-            )
-
-        # 5. Cache annotation state — /stream_frame reads this to annotate frames
-        #    at STREAM_FPS without re-running the AI pipeline each time.
-        _annotation_cache[camera_id] = {
-            "risk_results":    risk_results,
-            "global_ids":      global_ids,
-            "effective_times": effective_times,
-            "person_map":      person_map,
-        }
-
-        # 6. Emit tracking_update (sidebar data for the React dashboard)
-        socketio.emit("tracking_update", _build_tracking_update(
-            camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map
-        ))
-
-        # Record server-side AI pipeline processing time.
-        _processing_times_ms.append((time.time() - pipeline_start) * 1000)
-
-        # 7. Respond to Edge Node — include KPI scores and any pending camera config.
-        response: dict = {
-            "global_ids":      global_ids,
-            "effective_times": effective_times,
-            "alerts":          [r.local_id for r in risk_results if r.in_zone],
-            "alert_types":     {
-                str(r.local_id): r.alert_types
-                for r in risk_results if r.alert_types
-            },
-            "scores": {
-                str(r.local_id): scores_map.get(r.global_id, {})
-                for r in risk_results
-            },
-        }
         if camera_id in _pending_camera_configs:
             response["camera_config"] = _pending_camera_configs.pop(camera_id)
 
@@ -489,7 +527,17 @@ def create_app() -> Flask:
 
     @app.get("/api/health")
     def health():
-        return jsonify({"status": "ok", "service": "smart-eye-central-server"})
+        model_loaded = model_manager.is_loaded()
+        return jsonify({
+            "status":  "ok" if model_loaded else "degraded",
+            "service": "smart-eye-central-server",
+            "model": {
+                "loaded": model_loaded,
+                "path":   config.YOLO_MODEL_PATH,
+            },
+            "video_source": _video_manager.status(),
+            "firebase_live": _firebase.is_live,
+        })
 
     return app
 

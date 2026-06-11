@@ -29,9 +29,12 @@ class Detector:
     to payload_builder.build_payload().
     """
 
-    def __init__(self):
-        print(f"[INFO] Detector: loading YOLO model from {config.YOLO_MODEL_PATH} …")
-        self._model      = YOLO(config.YOLO_MODEL_PATH)
+    def __init__(self, model: YOLO = None):
+        if model is not None:
+            self._model = model
+        else:
+            print(f"[INFO] Detector: loading YOLO model from {config.YOLO_MODEL_PATH} …")
+            self._model = YOLO(config.YOLO_MODEL_PATH)
         self._extractor  = FeatureExtractor()
         self._tracked: Dict[int, dict] = {}
         self._frame_count = 0

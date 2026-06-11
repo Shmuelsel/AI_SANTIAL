@@ -1,16 +1,13 @@
 """
 WSGI entry point for production deployment on Azure App Service (Linux).
 
-gevent.monkey.patch_all() MUST be called before any other import so that
-the standard library is patched for cooperative I/O before Flask-SocketIO
-or any network code is imported.
+Flask-SocketIO runs with async_mode="threading" so the CPU-bound YOLO/torch
+inference in the in-process VideoWorker doesn't block Socket.IO — gunicorn
+must therefore use a threaded worker, not an eventlet/gevent worker.
 
 Azure App Service Startup Command (Portal → Configuration → General Settings):
-    cd /home/site/wwwroot/backend && gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 --timeout 120 --bind 0.0.0.0:$PORT wsgi:app
+    cd /home/site/wwwroot/backend && gunicorn --worker-class gthread --threads 8 -w 1 --timeout 120 --bind 0.0.0.0:$PORT wsgi:app
 """
-from gevent import monkey
-monkey.patch_all()
-
 import sys
 import os
 

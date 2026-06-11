@@ -37,7 +37,9 @@ class FirebaseClient:
                     cred = credentials.Certificate(json.loads(config.FIREBASE_CREDENTIALS_JSON))
                 else:
                     cred = credentials.Certificate(config.FIREBASE_CRED_PATH)
-                firebase_admin.initialize_app(cred, {"databaseURL": config.FIREBASE_DB_URL})
+                firebase_admin.initialize_app(cred, {
+                    "databaseURL": config.FIREBASE_DB_URL,
+                })
 
             self._db = rtdb
             print("[INFO] FirebaseClient: *** LIVE MODE *** — writing to Firebase Realtime Database.")

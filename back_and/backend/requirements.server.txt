@@ -1,7 +1,14 @@
 # Server-only dependencies for Azure App Service deployment.
 #
-# DO NOT add edge-node packages here (torch, torchvision, ultralytics, etc.).
-# Those are only needed on the physical edge device running the camera pipeline.
+# The Edge Node and Central Server have been merged into a single cloud
+# process — this server now also runs YOLOv8 detection, Re-ID, and the
+# video-file pipeline (see central_server/video_worker.py), so the
+# AI/vision packages below ARE required here.
+#
+# NOTE: this image is now substantially larger (~1-1.5GB added for
+# torch/ultralytics). Use an Azure App Service plan with >= 4GB RAM
+# (e.g. P1v3) and ensure gunicorn's --timeout is generous enough for
+# the first-request model load (see Dockerfile / wsgi.py).
 #
 # Install on Azure via: pip install -r requirements.server.txt
 
@@ -10,15 +17,19 @@ flask
 flask-socketio
 flask-cors
 
-# --- Production WSGI server (replaces Werkzeug dev server) ---
+# --- Production WSGI server (threading mode — async_mode="threading") ---
 gunicorn
-gevent
-gevent-websocket
+simple-websocket
 
-# --- Firebase Realtime Database ---
+# --- Firebase Realtime Database + Storage (demo video caching) ---
 firebase-admin
 
-# --- Frame annotation (server annotates JPEG frames received from edge node) ---
+# --- AI & Vision (YOLOv8 detection, Re-ID feature extraction, video files) ---
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+ultralytics
+Pillow
 numpy<2
 opencv-python-headless
 

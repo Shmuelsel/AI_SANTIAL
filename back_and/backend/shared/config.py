@@ -148,6 +148,27 @@ LOITERING_ALERT_THRESHOLD = int(os.environ.get("LOITERING_ALERT_THRESHOLD", 70))
 COMBINED_ALERT_THRESHOLD  = int(os.environ.get("COMBINED_ALERT_THRESHOLD",  50))
 
 # ---------------------------------------------------------------------------
+# Video Sources (Live = looping local file, Demo = looping local file)
+# ---------------------------------------------------------------------------
+VIDEOS_DIR = os.path.join(BASE_DIR, "assets", "videos")
+
+LIVE_VIDEO_PATH = os.environ.get(
+    "LIVE_VIDEO_PATH", os.path.join(VIDEOS_DIR, "live_demo.mp4")
+)
+DEFAULT_VIDEO_MODE = os.environ.get("DEFAULT_VIDEO_MODE", "live")
+
+# Demo Mode videos are discovered dynamically by scanning VIDEOS_DIR for .mp4
+# files (excluding the live-mode file) — drop a new file in and it becomes
+# selectable in the frontend without any code changes (see
+# central_server/video_sources.list_demo_videos()).
+DEMO_VIDEOS_DIR = VIDEOS_DIR
+
+# Optional: pin the filename used when "demo" mode is selected without an
+# explicit filename. If unset, the first file returned by list_demo_videos()
+# (alphabetical) is used.
+DEFAULT_DEMO_VIDEO_FILENAME = os.environ.get("DEFAULT_DEMO_VIDEO_FILENAME")
+
+# ---------------------------------------------------------------------------
 # Firebase
 # ---------------------------------------------------------------------------
 FIREBASE_CREDENTIALS_JSON = os.environ.get("FIREBASE_CREDENTIALS_JSON")  # full JSON string (preferred on Azure)

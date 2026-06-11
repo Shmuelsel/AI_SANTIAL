@@ -25,4 +25,4 @@ COPY . .
 # wsgi.py -> config.py reads it with: int(os.environ.get("PORT", 8000))
 EXPOSE 8000
 
-CMD ["sh", "-c", "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT:-8000} wsgi:app"]
+CMD ["sh", "-c", "gunicorn --worker-class gthread --threads 8 -w 1 --timeout 120 --bind 0.0.0.0:${PORT:-8000} wsgi:app"]

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Save, Bell, Shield, Server, Camera, RefreshCw, Volume2, Mail, Cpu, CheckCircle, XCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Save, Bell, Shield, Server, Camera, RefreshCw, Volume2, Mail, Cpu, CheckCircle, XCircle, Video, PlayCircle } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -25,6 +25,57 @@ const Settings = () => {
 
   const [isSaving, setIsSaving]   = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // 'success' | 'error' | null
+
+  const [videoSource, setVideoSource] = useState(null); // {mode, running, camera_id, source, filename}
+  const [demoVideos, setDemoVideos] = useState([]); // ["alert_behavior.mp4", ...]
+  const [videoSourceBusy, setVideoSourceBusy] = useState(false);
+  const [videoSourceError, setVideoSourceError] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/video-source`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Server responded with ${res.status}`))))
+      .then(setVideoSource)
+      .catch((err) => console.error('[Settings] Failed to load video source:', err));
+
+    fetch(`${API_BASE_URL}/api/available-videos`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Server responded with ${res.status}`))))
+      .then((data) => setDemoVideos(data.videos || []))
+      .catch((err) => console.error('[Settings] Failed to load available videos:', err));
+  }, []);
+
+  const switchVideoSource = async (mode, filename) => {
+    if (videoSourceBusy) return;
+
+    setVideoSourceBusy(true);
+    setVideoSourceError(null);
+    try {
+      const body = { mode };
+      if (mode === 'demo' && filename) body.filename = filename;
+
+      const res = await fetch(`${API_BASE_URL}/api/video-source`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+      setVideoSource(await res.json());
+    } catch (err) {
+      console.error('[Settings] Failed to switch video source:', err);
+      setVideoSourceError('Could not switch video source – check backend');
+    } finally {
+      setVideoSourceBusy(false);
+    }
+  };
+
+  const handleVideoSourceToggle = () => {
+    if (!videoSource) return;
+    const nextMode = videoSource.mode === 'live' ? 'demo' : 'live';
+    switchVideoSource(nextMode, videoSource.filename);
+  };
+
+  const handleDemoVideoChange = (e) => {
+    switchVideoSource('demo', e.target.value);
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -148,6 +199,75 @@ const Settings = () => {
               onToggle={() => setNotifications({...notifications, desktop: !notifications.desktop})}
             />
           </div>
+        </div>
+
+        {/* 2.5 Video Source Toggle */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl lg:col-span-2">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-indigo-500/10 rounded-lg text-indigo-400">
+                <Video size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Video Source</h3>
+                <p className="text-sm text-slate-500">Switch between a simulated live feed and the demo showcase video</p>
+              </div>
+            </div>
+            {videoSource && (
+              <div className="flex items-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full ${videoSource.running ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
+                <span className="text-sm font-medium text-slate-400">{videoSource.running ? 'Running' : 'Stopped'}</span>
+              </div>
+            )}
+          </div>
+
+          {videoSource ? (
+            <>
+              <ToggleOption
+                icon={videoSource.mode === 'demo' ? PlayCircle : Video}
+                label={videoSource.mode === 'demo' ? 'Demo Mode' : 'Live Feed'}
+                desc={
+                  videoSource.mode === 'demo'
+                    ? 'Playing the showcase video from Firebase Storage'
+                    : 'Looping the local live-feed video file'
+                }
+                active={videoSource.mode === 'demo'}
+                onToggle={handleVideoSourceToggle}
+              />
+              {videoSource.mode === 'demo' && demoVideos.length > 0 && (
+                <div className="mt-4 pl-14">
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                    Demo Scenario
+                  </label>
+                  <select
+                    value={videoSource.filename || ''}
+                    onChange={handleDemoVideoChange}
+                    disabled={videoSourceBusy}
+                    className="w-full sm:w-80 bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {demoVideos.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {videoSourceBusy && (
+                <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+                  <RefreshCw className="animate-spin" size={14} /> Switching video source…
+                </p>
+              )}
+              {videoSourceError && (
+                <p className="text-xs text-red-400 mt-3 flex items-center gap-1.5">
+                  <XCircle size={14} /> {videoSourceError}
+                </p>
+              )}
+              <p className="text-xs text-slate-600 mt-3 font-mono truncate">{videoSource.source}</p>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">Loading video source status…</p>
+          )}
         </div>
 
         {/* 3. Camera Management */}
