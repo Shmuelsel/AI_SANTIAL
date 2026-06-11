@@ -1,0 +1,24 @@
+# Exclude the virtual environment — this can be several GB
+venv/
+
+# Exclude edge-node code and its runner (not deployed on Azure)
+edge_node/
+run_edge.py
+run_debug.py
+debug/
+
+# Exclude the combined requirements file (server uses requirements.server.txt)
+requirements.txt
+
+# Exclude AI model weights — large binaries, not used by the server
+*.pt
+*.pth
+*.onnx
+
+# Exclude runtime-generated files
+*.db
+*.sqlite3
+*.log
+__pycache__/
+*.pyc
+*.pyo

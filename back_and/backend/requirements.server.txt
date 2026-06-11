@@ -1,0 +1,26 @@
+# Server-only dependencies for Azure App Service deployment.
+#
+# DO NOT add edge-node packages here (torch, torchvision, ultralytics, etc.).
+# Those are only needed on the physical edge device running the camera pipeline.
+#
+# Install on Azure via: pip install -r requirements.server.txt
+
+# --- Web framework & real-time transport ---
+flask
+flask-socketio
+flask-cors
+
+# --- Production WSGI server (replaces Werkzeug dev server) ---
+gunicorn
+gevent
+gevent-websocket
+
+# --- Firebase Realtime Database ---
+firebase-admin
+
+# --- Frame annotation (server annotates JPEG frames received from edge node) ---
+numpy<2
+opencv-python-headless
+
+# --- System metrics (CPU usage for /api/stats health endpoint) ---
+psutil

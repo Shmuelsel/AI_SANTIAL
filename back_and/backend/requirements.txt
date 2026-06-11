@@ -1,0 +1,28 @@
+﻿--extra-index-url https://download.pytorch.org/whl/cpu
+
+# --- Core Build Tools ---
+numpy<2
+setuptools
+wheel
+cython
+
+# --- AI & Vision ---
+torch
+torchvision
+opencv-contrib-python
+ultralytics
+Pillow
+
+# --- Server & Utilities ---
+flask
+flask-socketio
+flask-cors
+firebase-admin
+requests
+yacs
+gdown
+python-dotenv
+
+# --- Production WSGI server ---
+gunicorn
+eventlet
