@@ -22,10 +22,10 @@ COPY requirements.server.txt .
 RUN pip install --no-cache-dir -r requirements.server.txt
 
 # Copy server source code
-COPY . .
+COPY . /app/
 
 # Azure App Service injects PORT at runtime via environment variable.
 # wsgi.py -> config.py reads it with: int(os.environ.get("PORT", 8000))
-EXPOSE 8000
+EXPOSE 5000
 
-CMD ["sh", "-c", "gunicorn --worker-class gthread --threads 8 -w 1 --timeout 120 --bind 0.0.0.0:${PORT:-8000} wsgi:app"]
+CMD ["sh", "-c", "gunicorn --worker-class gthread --threads 8 -w 1 --timeout 120 --bind 0.0.0.0:${PORT:-5000} wsgi:app"]
