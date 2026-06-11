@@ -31,7 +31,7 @@ env:
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "clientAndSide" ]
   workflow_dispatch:
 
 permissions:
