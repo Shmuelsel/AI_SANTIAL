@@ -100,11 +100,11 @@ class VideoWorker(threading.Thread):
         self.annotate_fn = annotate_fn
         self.zone_fn     = zone_fn
         self.cache_fn    = cache_fn
-        self.frame_hook  = frame_hook   # called with each emitted frame (for alert recording)
-        self._stop       = threading.Event()
+        self.frame_hook   = frame_hook   # called with each emitted frame (for alert recording)
+        self._stop_event  = threading.Event()
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
     def run(self):
         last_send       = 0.0
@@ -114,7 +114,7 @@ class VideoWorker(threading.Thread):
 
         print(f"[INFO] VideoWorker[{self.camera_id}]: started.")
 
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             loop_start = time.time()
 
             frame = self.source.read()
