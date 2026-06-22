@@ -27,7 +27,7 @@ const SystemLogs = ({ alerts = [], activityLog = [] }) => {
   );
 
   return (
-    <div className="flex-1 min-h-0 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden">
+    <div className="h-full bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden">
 
       {/* ── Tab bar ─────────────────────────────────────────── */}
       <div className="flex border-b border-slate-800 shrink-0">
