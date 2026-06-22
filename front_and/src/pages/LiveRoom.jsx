@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { AlertTriangle, CheckCircle, TrendingUp, Pen, Film } from 'lucide-react';
+import { AlertTriangle, CheckCircle, TrendingUp, Pen, Film, Trash2 } from 'lucide-react';
 import DrawingOverlay from '../components/DrawingOverlay';
 import DynamicScoringPanel from '../components/DynamicScoringPanel';
 import AlertHistoryModal from '../components/AlertHistoryModal';
@@ -408,8 +408,8 @@ const LiveRoom = () => {
             )}
           </div>
 
-          {/* ── 2. Tabbed system logs — full video width ────────── */}
-          <div className="h-40 shrink-0">
+          {/* ── 2. Tabbed system logs — full video width, natural height ── */}
+          <div className="shrink-0">
             <SystemLogs alerts={alerts} activityLog={activityLog} />
           </div>
 
@@ -469,6 +469,23 @@ const LiveRoom = () => {
               {isDrawingMode ? 'Drawing…' : 'Zone'}
             </button>
 
+            {/* Clear all zones button */}
+            <button
+              onClick={() => {
+                setRestrictedZones([]);
+                socketRef.current?.emit('update_restricted_zone', { zones: [] });
+              }}
+              disabled={restrictedZones.length === 0}
+              title="Clear all drawn zones"
+              className="flex items-center gap-1.5 px-3 text-xs rounded-xl shrink-0 transition-colors border
+                bg-slate-800 border-slate-700 hover:bg-red-900/50 hover:border-red-800/50 text-slate-500 hover:text-red-400
+                disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-slate-800
+                disabled:hover:text-slate-500 disabled:hover:border-slate-700"
+            >
+              <Trash2 size={11} />
+              Clear
+            </button>
+
             {/* Alert history button */}
             <button
               onClick={() => setShowHistory(true)}
@@ -483,9 +500,9 @@ const LiveRoom = () => {
         </div>
 
         {/* ════════════════════════════════════════════════════════
-            RIGHT COL (4): subject tracking cards — full height
+            RIGHT COL (4): subject tracking cards — matches grid row height
             ════════════════════════════════════════════════════════ */}
-        <div className="col-span-4 min-h-0 flex flex-col">
+        <div className="col-span-4 h-full min-h-0 flex flex-col bg-slate-900 rounded-2xl border border-slate-800 p-3">
           <DynamicScoringPanel persons={trackingPersons} />
         </div>
       </div>
