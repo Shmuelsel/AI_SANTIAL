@@ -95,6 +95,7 @@ const LiveRoom = () => {
   const [restrictedZones, setRestrictedZones]   = useState([]);
   const [videoMode, setVideoMode]               = useState(null);
   const [trackingPersons, setTrackingPersons]   = useState([]);
+  const [frameSize, setFrameSize]               = useState({ width: 0, height: 0 });
   const [activityLog, setActivityLog]           = useState([]);
   const [showHistory, setShowHistory]           = useState(false);
 
@@ -158,6 +159,9 @@ const LiveRoom = () => {
     socketRef.current.on('tracking_update', (payload) => {
       const persons = payload.persons || [];
       setTrackingPersons(persons);
+      if (payload.frame_width && payload.frame_height) {
+        setFrameSize({ width: payload.frame_width, height: payload.frame_height });
+      }
 
       const prev    = prevPersonsRef.current;
       const nowSeen = new Set(persons.map(p => p.global_id));
@@ -269,6 +273,8 @@ const LiveRoom = () => {
   }, []);
 
   // ── Canvas bounding-box overlay ────────────────────────────────────────
+  // Draws the live tracking_update boxes (server pixel coords, scaled to the
+  // displayed <img> size) plus the dwell time / id / risk label per subject.
   useEffect(() => {
     const canvas = canvasRef.current;
     const img    = imgRef.current;
@@ -280,25 +286,39 @@ const LiveRoom = () => {
       canvas.height = img.clientHeight;
     }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!isDrawingMode) {
-      activeDetections.forEach(det => _drawBox(ctx, det, canvas.width, canvas.height));
-    }
-  }, [activeDetections, isDrawingMode]);
+    if (isDrawingMode || !frameSize.width || !frameSize.height) return;
 
-  const _drawBox = (ctx, detection, w, h) => {
-    const { x, y, w: bw, h: bh } = detection.bbox;
-    const rx = x * w, ry = y * h, rw = bw * w, rh = bh * h;
+    const scaleX = canvas.width  / frameSize.width;
+    const scaleY = canvas.height / frameSize.height;
+    trackingPersons.forEach(p => _drawPersonBox(ctx, p, scaleX, scaleY));
+  }, [trackingPersons, frameSize, isDrawingMode]);
+
+  const _drawPersonBox = (ctx, person, scaleX, scaleY) => {
+    const box = person.box;
+    if (!Array.isArray(box) || box.length !== 4) return;
+    const [x1, y1, x2, y2] = box;
+    const rx = x1 * scaleX, ry = y1 * scaleY;
+    const rw = (x2 - x1) * scaleX, rh = (y2 - y1) * scaleY;
+
+    const alertTypes = person.alert_types ?? [];
+    const color = alertTypes.includes('climbing')  ? '#ef4444'
+                : alertTypes.length > 0             ? '#f97316'
+                : (person.risk_score ?? 0) >= 40    ? '#eab308'
+                : '#22d3ee';
+
+    const label = `ID:${person.global_id} | ${person.time_in_frame_seconds}s | R:${person.risk_score ?? 0}`;
 
     ctx.save();
-    ctx.strokeStyle = '#22d3ee';
+    ctx.strokeStyle = color;
     ctx.lineWidth   = 1.5;
     ctx.strokeRect(rx, ry, rw, rh);
-    ctx.font        = 'bold 11px monospace';
-    ctx.fillStyle   = '#22d3ee';
-    ctx.fillText(
-      `${detection.label} ${(detection.confidence * 100).toFixed(0)}%`,
-      rx + 4, ry + 14,
-    );
+
+    ctx.font = 'bold 11px monospace';
+    const textWidth = ctx.measureText(label).width;
+    ctx.fillStyle = color;
+    ctx.fillRect(rx, ry - 14, textWidth + 8, 14);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(label, rx + 4, ry - 3);
     ctx.restore();
   };
 

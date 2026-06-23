@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, AreaChart, Area,
+  BarChart, Bar, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { ShieldCheck, AlertTriangle, Activity, Eye } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
@@ -24,6 +25,11 @@ const Dashboard = () => {
   const [health, setHealth] = useState({
     serverLoad: 0, dbStorage: 0, aiLatency: 0, network: 0,
   });
+
+  // Segmented breakdowns from GET /api/stats/breakdown
+  const [alertTypeData, setAlertTypeData] = useState([]);
+  const [cameraData, setCameraData]       = useState([]);
+  const [severityData, setSeverityData]   = useState([]);
 
   // ── Clock ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -112,6 +118,32 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // ── GET /api/stats/breakdown – alert type, per-camera, severity segments ─
+  useEffect(() => {
+    const fetchBreakdown = async () => {
+      try {
+        const res  = await fetch(`${API_BASE_URL}/api/stats/breakdown`);
+        if (!res.ok) throw new Error(res.statusText);
+        const data = await res.json();
+
+        setAlertTypeData(
+          (data.by_alert_type ?? []).map(d => ({ name: d.type, value: d.count }))
+        );
+        setCameraData(
+          (data.by_camera ?? []).map(d => ({ name: d.camera_id, count: d.count }))
+        );
+        setSeverityData(
+          (data.by_severity ?? []).map(d => ({ name: d.severity, count: d.count }))
+        );
+      } catch (err) {
+        console.error('[Dashboard] /api/stats/breakdown error:', err);
+      }
+    };
+    fetchBreakdown();
+    const interval = setInterval(fetchBreakdown, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
   // ── Active camera count from backend ──────────────────────────────────
   useEffect(() => {
     const fetchCameras = async () => {
@@ -173,9 +205,9 @@ const Dashboard = () => {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-96">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-96 mt-6">
         {/* Trend chart */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl mt-6 lg:mt-0">
           <h3 className="text-lg font-semibold text-white mb-6">
             Detection Trend (today, by hour)
           </h3>
@@ -236,9 +268,96 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Segmented insight charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-96">
+        {/* Alert type distribution */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-white mb-4">Alert Type Distribution</h3>
+          <div className="h-72 w-full">
+            {alertTypeData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={alertTypeData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    label={({ name }) => name}
+                  >
+                    {alertTypeData.map((entry, i) => (
+                      <Cell key={entry.name} fill={ALERT_TYPE_COLORS[i % ALERT_TYPE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#fff' }} />
+                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                No alert data yet
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Alerts by camera */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-white mb-4">Alerts by Camera</h3>
+          <div className="h-72 w-full">
+            {cameraData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={cameraData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="name" stroke="#64748b" />
+                  <YAxis stroke="#64748b" allowDecimals={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#fff' }} />
+                  <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                No camera data yet
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Risk severity breakdown */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-white mb-4">Risk Severity Breakdown</h3>
+          <div className="h-72 w-full">
+            {severityData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={severityData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="name" stroke="#64748b" />
+                  <YAxis stroke="#64748b" allowDecimals={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#fff' }} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {severityData.map((entry) => (
+                      <Cell key={entry.name} fill={SEVERITY_COLORS[entry.name] ?? '#6366f1'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                No severity data yet
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
+
+// ── Chart color palettes ────────────────────────────────────────────────
+const ALERT_TYPE_COLORS = ['#6366f1', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6'];
+const SEVERITY_COLORS   = { Low: '#10b981', Medium: '#f59e0b', High: '#ef4444' };
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 const StatCard = ({ title, value, subValue, icon: Icon, color }) => {

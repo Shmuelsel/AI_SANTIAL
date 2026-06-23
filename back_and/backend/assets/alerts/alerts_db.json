@@ -1,0 +1,145 @@
+[
+  {
+    "id": "alert_20260623_110609_G2",
+    "timestamp": "2026-06-23T11:06:09.180058+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110609_10609_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110609_10609_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110508_G2",
+    "timestamp": "2026-06-23T11:05:08.922484+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110508_10508_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110508_10508_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110408_G2",
+    "timestamp": "2026-06-23T11:04:08.662176+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110408_10408_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110408_10408_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110249_G2",
+    "timestamp": "2026-06-23T11:02:49.064799+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110249_10249_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110249_10249_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110217_G2",
+    "timestamp": "2026-06-23T11:02:17.919234+00:00",
+    "eventType": "Climbing",
+    "alert_type": "climbing",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110217_10217_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110217_10217_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110148_G2",
+    "timestamp": "2026-06-23T11:01:48.805656+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110148_10148_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110148_10148_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110040_G2",
+    "timestamp": "2026-06-23T11:00:40.488735+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110040_10040_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110040_10040_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_110002_G2",
+    "timestamp": "2026-06-23T11:00:02.314134+00:00",
+    "eventType": "Climbing",
+    "alert_type": "climbing",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_110002_10002_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_110002_10002_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_105928_G2",
+    "timestamp": "2026-06-23T10:59:28.086849+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_105928_05928_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_105928_05928_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_105823_G2",
+    "timestamp": "2026-06-23T10:58:23.794159+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_105823_05823_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_105823_05823_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_105732_G2",
+    "timestamp": "2026-06-23T10:57:32.561547+00:00",
+    "eventType": "Climbing",
+    "alert_type": "climbing",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_105732_05732_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_105732_05732_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_105723_G2",
+    "timestamp": "2026-06-23T10:57:23.518570+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_105723_05723_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_105723_05723_G2.mp4"
+  },
+  {
+    "id": "alert_20260623_105615_G2",
+    "timestamp": "2026-06-23T10:56:15.226676+00:00",
+    "eventType": "Loitering",
+    "alert_type": "loitering",
+    "score": 0,
+    "camera_id": "CAM_1001",
+    "zone_risk_level": null,
+    "filename": "alert_20260623_105615_05615_G2.mp4",
+    "videoPath": "C:\\Users\\שמואל\\source\\repos\\AI_SANTIAL\\back_and\\backend\\assets\\alerts\\alert_20260623_105615_05615_G2.mp4"
+  }
+]

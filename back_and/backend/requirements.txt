@@ -1,7 +1,10 @@
 ﻿--extra-index-url https://download.pytorch.org/whl/cpu
 
 # --- Core Build Tools ---
-numpy<2
+# numpy<2 has no wheel for Python 3.13+; let pip resolve numpy 2.x there.
+# Pin numpy<2 yourself if running on Python <=3.12 for stricter parity with
+# the Azure production image (requirements.server.txt still pins numpy<2).
+numpy
 setuptools
 wheel
 cython
@@ -11,17 +14,20 @@ torch
 torchvision
 opencv-contrib-python
 ultralytics>=8.3.0
+lap==0.5.13
 Pillow
 
 # --- Server & Utilities ---
 flask
 flask-socketio
 flask-cors
+simple-websocket
 firebase-admin
 requests
 yacs
 gdown
 python-dotenv
+psutil
 
 # --- Production WSGI server ---
 gunicorn

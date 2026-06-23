@@ -178,6 +178,43 @@ def _hourly_trends() -> list:
     return [{"hour": h, "count": c} for h, c in sorted(buckets.items())]
 
 
+def _severity_bucket(risk_score: float) -> str:
+    """Bucket a 0-100 risk score into a human-readable severity tier."""
+    if risk_score >= 67:
+        return "High"
+    if risk_score >= 34:
+        return "Medium"
+    return "Low"
+
+
+def _breakdown_stats() -> dict:
+    """Aggregate _events_log by alert type, camera, and risk severity for the Dashboard."""
+    by_alert_type: dict = {}
+    by_camera:     dict = {}
+    by_severity:   dict = {"Low": 0, "Medium": 0, "High": 0}
+
+    for evt in _events_log:
+        alert_type = evt.get("event_type", "intrusion")
+        camera_id  = evt.get("camera_id", "unknown")
+        risk_score = evt.get("risk_score", 0) or 0
+
+        by_alert_type[alert_type] = by_alert_type.get(alert_type, 0) + 1
+        by_camera[camera_id]      = by_camera.get(camera_id, 0) + 1
+        by_severity[_severity_bucket(risk_score)] += 1
+
+    return {
+        "by_alert_type": [
+            {"type": k, "count": v} for k, v in sorted(by_alert_type.items(), key=lambda kv: -kv[1])
+        ],
+        "by_camera": [
+            {"camera_id": k, "count": v} for k, v in sorted(by_camera.items(), key=lambda kv: -kv[1])
+        ],
+        "by_severity": [
+            {"severity": s, "count": by_severity[s]} for s in ("Low", "Medium", "High")
+        ],
+    }
+
+
 def sync_rules_from_firebase():
     """
     Fetch all rules stored in Firebase and merge them into the local store.
@@ -322,9 +359,10 @@ def process_tracking_payload(camera_id: str, persons: list, frame_w: int, frame_
         "person_map":      person_map,
     }
 
-    # 6. Emit tracking_update (sidebar data for the React dashboard)
+    # 6. Emit tracking_update (sidebar data + box overlay for the React dashboard)
     socketio.emit("tracking_update", _build_tracking_update(
-        camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map
+        camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map,
+        frame_width=frame_w, frame_height=frame_h,
     ))
 
     # Record server-side AI pipeline processing time.
@@ -559,6 +597,19 @@ def create_app() -> Flask:
         })
 
     # ------------------------------------------------------------------
+    # GET /api/stats/breakdown
+    #
+    # Returns segmented counts for the Dashboard's insight charts:
+    # alert-type distribution, per-camera volume, and risk-severity tiers.
+    # Sourced from the same in-memory _events_log as /api/stats — no
+    # additional Firebase reads on this hot path.
+    # ------------------------------------------------------------------
+
+    @app.get("/api/stats/breakdown")
+    def stats_breakdown():
+        return jsonify(_breakdown_stats())
+
+    # ------------------------------------------------------------------
     # GET /api/events
     #
     # Returns the last N detection events for the Events Log page.
@@ -648,7 +699,8 @@ def _annotate(frame, risk_results, global_ids, effective_times, person_map):
 # Tracking update builder
 # ---------------------------------------------------------------------------
 
-def _build_tracking_update(camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map=None):
+def _build_tracking_update(camera_id, timestamp, persons, risk_results, global_ids, effective_times,
+                            scores_map=None, frame_width=None, frame_height=None):
     result_map  = {r.local_id: r for r in risk_results}
     person_list = []
 
@@ -670,7 +722,13 @@ def _build_tracking_update(camera_id, timestamp, persons, risk_results, global_i
             }),
         })
 
-    return {"camera_id": camera_id, "timestamp": timestamp, "persons": person_list}
+    return {
+        "camera_id":     camera_id,
+        "timestamp":     timestamp,
+        "frame_width":   frame_width,
+        "frame_height":  frame_height,
+        "persons":       person_list,
+    }
 
 
 # ---------------------------------------------------------------------------
