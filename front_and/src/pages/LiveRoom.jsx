@@ -95,13 +95,10 @@ const LiveRoom = () => {
   const [restrictedZones, setRestrictedZones]   = useState([]);
   const [videoMode, setVideoMode]               = useState(null);
   const [trackingPersons, setTrackingPersons]   = useState([]);
-  const [frameSize, setFrameSize]               = useState({ width: 0, height: 0 });
   const [activityLog, setActivityLog]           = useState([]);
   const [showHistory, setShowHistory]           = useState(false);
 
   const socketRef         = useRef(null);
-  const imgRef            = useRef(null);
-  const canvasRef         = useRef(null);
   const videoContainerRef = useRef(null);
   const prevPersonsRef    = useRef({});
   const bannerTimersRef   = useRef({});   // global_id → expiry timeout handle
@@ -159,9 +156,6 @@ const LiveRoom = () => {
     socketRef.current.on('tracking_update', (payload) => {
       const persons = payload.persons || [];
       setTrackingPersons(persons);
-      if (payload.frame_width && payload.frame_height) {
-        setFrameSize({ width: payload.frame_width, height: payload.frame_height });
-      }
 
       const prev    = prevPersonsRef.current;
       const nowSeen = new Set(persons.map(p => p.global_id));
@@ -272,56 +266,6 @@ const LiveRoom = () => {
     return () => unsubscribe();
   }, []);
 
-  // ── Canvas bounding-box overlay ────────────────────────────────────────
-  // Draws the live tracking_update boxes (server pixel coords, scaled to the
-  // displayed <img> size) plus the dwell time / id / risk label per subject.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const img    = imgRef.current;
-    if (!canvas || !img) return;
-
-    const ctx = canvas.getContext('2d');
-    if (canvas.width !== img.clientWidth || canvas.height !== img.clientHeight) {
-      canvas.width  = img.clientWidth;
-      canvas.height = img.clientHeight;
-    }
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (isDrawingMode || !frameSize.width || !frameSize.height) return;
-
-    const scaleX = canvas.width  / frameSize.width;
-    const scaleY = canvas.height / frameSize.height;
-    trackingPersons.forEach(p => _drawPersonBox(ctx, p, scaleX, scaleY));
-  }, [trackingPersons, frameSize, isDrawingMode]);
-
-  const _drawPersonBox = (ctx, person, scaleX, scaleY) => {
-    const box = person.box;
-    if (!Array.isArray(box) || box.length !== 4) return;
-    const [x1, y1, x2, y2] = box;
-    const rx = x1 * scaleX, ry = y1 * scaleY;
-    const rw = (x2 - x1) * scaleX, rh = (y2 - y1) * scaleY;
-
-    const alertTypes = person.alert_types ?? [];
-    const color = alertTypes.includes('climbing')  ? '#ef4444'
-                : alertTypes.length > 0             ? '#f97316'
-                : (person.risk_score ?? 0) >= 40    ? '#eab308'
-                : '#22d3ee';
-
-    const label = `ID:${person.global_id} | ${person.time_in_frame_seconds}s | R:${person.risk_score ?? 0}`;
-
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 1.5;
-    ctx.strokeRect(rx, ry, rw, rh);
-
-    ctx.font = 'bold 11px monospace';
-    const textWidth = ctx.measureText(label).width;
-    ctx.fillStyle = color;
-    ctx.fillRect(rx, ry - 14, textWidth + 8, 14);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillText(label, rx + 4, ry - 3);
-    ctx.restore();
-  };
-
   // ── Operator decision ──────────────────────────────────────────────────
   const handleDecision = async (status) => {
     if (activeDetections.length === 0) return;
@@ -356,17 +300,14 @@ const LiveRoom = () => {
             className="relative bg-black rounded-2xl overflow-hidden flex-1 min-h-0 border border-slate-800"
           >
             <img
-              ref={imgRef}
               src={MJPEG_URL}
               className="w-full h-full object-contain"
               alt="Live camera stream"
             />
 
-            {/* Canvas: client-side bounding boxes */}
-            <canvas
-              ref={canvasRef}
-              className={`absolute inset-0 w-full h-full pointer-events-none z-10 ${isDrawingMode ? 'opacity-0' : ''}`}
-            />
+            {/* Bounding boxes + dwell time are burned server-side into the MJPEG
+                frames (see _annotate() in app.py) — pixel-perfect by construction,
+                no client-side scaling/overlay needed. */}
 
             {/* Zone SVG overlay */}
             {restrictedZones.length > 0 && !isDrawingMode && (

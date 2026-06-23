@@ -359,10 +359,9 @@ def process_tracking_payload(camera_id: str, persons: list, frame_w: int, frame_
         "person_map":      person_map,
     }
 
-    # 6. Emit tracking_update (sidebar data + box overlay for the React dashboard)
+    # 6. Emit tracking_update (sidebar data for the React dashboard)
     socketio.emit("tracking_update", _build_tracking_update(
-        camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map,
-        frame_width=frame_w, frame_height=frame_h,
+        camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map
     ))
 
     # Record server-side AI pipeline processing time.
@@ -658,18 +657,38 @@ def create_app() -> Flask:
 # Frame annotation
 # ---------------------------------------------------------------------------
 
-def _annotate(frame, risk_results, global_ids, effective_times, person_map):
+def _annotate(frame, risk_results, global_ids, effective_times, person_map, live_tracked=None):
+    """
+    Draws each tracked person's box + dwell-time/score label onto `frame`.
+
+    Box geometry is taken from `live_tracked` (the detector's continuously
+    updated state, refreshed every few frames) when available, falling back
+    to `person_map` (the AI-pipeline snapshot, refreshed only once per
+    SEND_INTERVAL_SECONDS). Using the snapshot for geometry would draw a
+    box from up to a second ago onto the current frame — visibly trailing
+    any moving subject. Label text (dwell time, score, alerts) still comes
+    from the snapshot since it requires the full AI pipeline.
+    """
     annotated  = frame.copy()
     result_map = {r.local_id: r for r in risk_results}
 
-    for local_id, person in person_map.items():
+    if live_tracked:
+        box_by_id = {
+            pid: data["box"] for pid, data in live_tracked.items()
+            if data.get("box_active")
+        }
+    else:
+        box_by_id = {local_id: person.box for local_id, person in person_map.items()}
+
+    for local_id, box in box_by_id.items():
+        person   = person_map.get(local_id)
         result   = result_map.get(local_id)
         gid      = global_ids.get(str(local_id), str(local_id))
-        eff_time = effective_times.get(str(local_id), int(person.time_in_frame_seconds))
+        eff_time = effective_times.get(str(local_id), int(person.time_in_frame_seconds) if person else 0)
         score    = result.risk_score  if result else 0
         alerts   = result.alert_types if result else []
 
-        x1, y1, x2, y2 = person.box
+        x1, y1, x2, y2 = box
 
         if "climbing" in alerts:
             color = config.COLOR_CLIMBING
@@ -699,8 +718,7 @@ def _annotate(frame, risk_results, global_ids, effective_times, person_map):
 # Tracking update builder
 # ---------------------------------------------------------------------------
 
-def _build_tracking_update(camera_id, timestamp, persons, risk_results, global_ids, effective_times,
-                            scores_map=None, frame_width=None, frame_height=None):
+def _build_tracking_update(camera_id, timestamp, persons, risk_results, global_ids, effective_times, scores_map=None):
     result_map  = {r.local_id: r for r in risk_results}
     person_list = []
 
@@ -722,13 +740,7 @@ def _build_tracking_update(camera_id, timestamp, persons, risk_results, global_i
             }),
         })
 
-    return {
-        "camera_id":     camera_id,
-        "timestamp":     timestamp,
-        "frame_width":   frame_width,
-        "frame_height":  frame_height,
-        "persons":       person_list,
-    }
+    return {"camera_id": camera_id, "timestamp": timestamp, "persons": person_list}
 
 
 # ---------------------------------------------------------------------------

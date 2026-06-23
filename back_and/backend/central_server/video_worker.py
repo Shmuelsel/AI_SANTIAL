@@ -259,6 +259,7 @@ class VideoWorker(threading.Thread):
                     cached.get("global_ids",      {}),
                     cached.get("effective_times", {}),
                     cached.get("person_map",      {}),
+                    live_tracked=self.detector.tracked,
                 )
                 if zones:
                     annotated = _draw_zones_cv(annotated, zones)
